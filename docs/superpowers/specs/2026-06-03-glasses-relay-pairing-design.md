@@ -39,9 +39,13 @@ authenticates them to the relay — a secret we mint ourselves, which QRs trivia
   - *Deferred:* Tailscale-on-the-glasses for remote use. Note: a phone merely being on
     Tailscale does **not** extend the tailnet to its hotspot clients — the glasses
     would need Tailscale themselves. Out of scope for v1.
-- **Glasses scope:** **monitor + approve.** The user watches the streaming session and
+- **Glasses scope:** **monitor + approve.** The user watches streaming sessions and
   approves/denies permissions by voice/touch. Voice-dictated *prompts* are deferred
   (the `prompt` message is reserved in the protocol but unused in v1).
+- **Parallel sessions:** the relay hosts **multiple concurrent Claude sessions**. The
+  glasses list them and the user **swipes between them**, each with its own transcript
+  and permission stream. A permission request on a non-visible session alerts the user
+  (haptic + a badge on that session).
 
 ## Architecture
 
@@ -72,15 +76,26 @@ Responsibilities:
    `{type:"error", code:"unauthorized"}` and close.
 5. **Claude session:** run a Claude Code session via the Agent SDK against the host's
    existing auth. Stream assistant output and tool events to the connected glasses.
-6. **Permission bridge:** the Agent SDK `canUseTool(tool, input)` callback generates a
-   request `id`, sends `permission_request`, and awaits the matching
-   `permission_response` before resolving allow/deny. If the glasses disconnect while a
-   request is pending, resolve **deny** (safe default).
+6. **Session manager:** hosts **multiple concurrent Claude sessions**, each an
+   independent Agent SDK conversation with its own `id`, title, transcript, and pending
+   permission state. Reports the set of sessions to the glasses (`session_list`) and
+   keeps it updated as sessions appear/finish. Every per-session protocol message carries
+   the `session` id.
+7. **Permission bridge:** each session's Agent SDK `canUseTool(tool, input)` callback
+   generates a request `id`, sends a `permission_request` (tagged with its `session`),
+   and awaits the matching `permission_response` before resolving allow/deny. If the
+   glasses disconnect while a request is pending, the request **stays pending** — the
+   session simply waits, and the relay re-sends all pending requests on reconnect. (A
+   session can therefore block indefinitely while the glasses are away; that is the
+   intended behavior.)
 
-One active session per relay process; the glasses are its remote controller.
-
-Files: `relay/src/{index,token,server,session,protocol}.ts`, `relay/public/dashboard.html`,
+Files: `relay/src/{index,token,server,sessions,protocol}.ts`, `relay/public/dashboard.html`,
 `relay/package.json`, `relay/tsconfig.json`, tests.
+
+**Open question (for the plan):** how sessions *originate* host-side — Agent SDK sessions
+started via the dashboard / a CLI command, vs. attaching to Claude Code instances the user
+is already running. v1 assumes sessions are started **on the host**; the glasses observe
+and approve across all of them.
 
 ### Component 2 — Dashboard website
 
@@ -99,45 +114,56 @@ QR generated client-side in the page (JS QR library).
   `host/port/token` to SharedPreferences, launch the session. Existing Wi-Fi QR handling
   stays. The old `claude.ai` URL path is removed.
 - **`SessionActivity` (rewrite):** drop the WebView and all injected JS. A new
-  **`RelayClient`** (OkHttp WebSocket) connects, sends `hello`, and dispatches events. UI
-  becomes a native scrollable transcript (RecyclerView via `TranscriptAdapter`) rendering
-  `assistant_delta` and `tool_use`, styled with the existing large-text/teal glasses look.
-  Connection status reuses the existing dot/label. Auto-reconnect with backoff on drop.
+  **`RelayClient`** (OkHttp WebSocket) connects, sends `hello`, and dispatches events.
+  The screen is a **`ViewPager2`** the user **swipes** across, one page per Claude session
+  (`session_list` drives the page set). Each page is a `SessionFragment` showing that
+  session's native scrollable transcript (RecyclerView via `TranscriptAdapter`) rendering
+  its `assistant_delta` / `tool_use`, plus a page indicator/title. Styled with the existing
+  large-text/teal glasses look. Connection status reuses the existing dot/label.
+  Auto-reconnect with backoff on drop.
 - **Permission bar + voice/key approve-deny:** preserved, now triggered by
-  `permission_request` and answered with `permission_response`. `VoiceCommandListener`
-  (APPROVE / DENY / SCROLL / BACK) is unchanged; SCROLL scrolls the RecyclerView instead
-  of running WebView JS.
+  `permission_request` and answered with `permission_response` (tagged with `session`).
+  A request for the **currently visible** session shows the bar inline; a request for a
+  **background** session fires a haptic and badges that session's page so the user can
+  swipe to it. `VoiceCommandListener` (APPROVE / DENY / SCROLL / BACK) is unchanged; APPROVE/
+  DENY act on the visible session's pending request; SCROLL scrolls that page's RecyclerView.
 - **Removed:** `PermissionBridge.kt` (the WebView JS bridge).
-- **Build:** add OkHttp to `app/build.gradle.kts`; swap the WebView for a RecyclerView in
-  `activity_session.xml`.
+- **Build:** add OkHttp to `app/build.gradle.kts`; replace the WebView with a `ViewPager2`
+  in `activity_session.xml`.
 
-New/changed files: `network/RelayClient.kt` (new), `session/TranscriptAdapter.kt` (new),
+New/changed files: `network/RelayClient.kt` (new), `session/SessionPagerAdapter.kt` (new),
+`session/SessionFragment.kt` (new), `session/TranscriptAdapter.kt` (new),
 `session/SessionActivity.kt` (rewrite), `scanner/ScannerActivity.kt` (extend),
-`res/layout/activity_session.xml` (swap view), remove `session/PermissionBridge.kt`.
+`res/layout/activity_session.xml` (swap WebView → ViewPager2),
+`res/layout/fragment_session.xml` (new), remove `session/PermissionBridge.kt`.
 
 ## WebSocket protocol
 
 Connection: glasses open `ws://<host>:<port>/ws`. First frame authenticates.
+
+Per-session messages carry a `session` id so the glasses can route them to the right
+swipe page. Session-agnostic messages (`hello`, `ready`, `session_list`, `error`) omit it.
 
 **Glasses → relay**
 
 | Message | Purpose |
 |---|---|
 | `{type:"hello", token}` | auth (first frame) |
-| `{type:"permission_response", id, decision:"allow"\|"deny"}` | answer a permission prompt |
-| `{type:"interrupt"}` | stop the current turn (optional) |
-| `{type:"prompt", text}` | **reserved**, unused in v1 (future voice dictation) |
+| `{type:"permission_response", session, id, decision:"allow"\|"deny"}` | answer a permission prompt |
+| `{type:"interrupt", session}` | stop that session's current turn (optional) |
+| `{type:"prompt", session, text}` | **reserved**, unused in v1 (future voice dictation) |
 
 **Relay → glasses**
 
 | Message | Purpose |
 |---|---|
 | `{type:"ready"}` | auth accepted |
-| `{type:"assistant_delta", text}` | streamed assistant text chunk |
-| `{type:"turn_done"}` | assistant finished a turn |
-| `{type:"tool_use", id, name, summary}` | Claude is using a tool (display only) |
-| `{type:"permission_request", id, tool, description}` | needs approve/deny |
-| `{type:"status", state}` | thinking / idle / running |
+| `{type:"session_list", sessions:[{id, title, state}]}` | full set of sessions; re-sent whenever it changes |
+| `{type:"assistant_delta", session, text}` | streamed assistant text chunk |
+| `{type:"turn_done", session}` | a session finished a turn |
+| `{type:"tool_use", session, id, name, summary}` | Claude is using a tool (display only) |
+| `{type:"permission_request", session, id, tool, description}` | needs approve/deny |
+| `{type:"status", session, state}` | thinking / idle / running |
 | `{type:"error", code, message}` | failures |
 
 The message type definitions live in `relay/src/protocol.ts` and are mirrored on the
@@ -157,18 +183,21 @@ Kotlin side; this protocol is the shared contract between the two halves.
 |---|---|
 | Bad / stale token | Glasses: "Pairing expired, re-scan QR." |
 | Host unreachable | Glasses: "Can't reach host — same Wi-Fi? Relay running?" with host:port. |
-| Mid-session WS drop | Auto-reconnect with exponential backoff; "Reconnecting…" banner; relay keeps the session alive and re-sends any pending permission request on reconnect. |
-| Pending permission + disconnect | Relay resolves **deny** (safe default). |
+| Mid-session WS drop | Auto-reconnect with exponential backoff; "Reconnecting…" banner; relay keeps all sessions alive and re-sends the current `session_list` plus every pending permission request on reconnect. |
+| Pending permission + disconnect | Request **stays pending** — the session waits (it may block indefinitely) and the request is re-sent on reconnect. Not auto-denied. |
 | Agent SDK error | Relay forwards `{type:"error"}`; glasses display it. |
 
 ## Testing (TDD)
 
-- **Relay:** auth accept/reject; permission bridge (allow / deny / disconnect-denies);
-  message serialization — with a mocked Agent SDK session and a fake WS client for an
-  integration pass running a scripted session.
-- **Glasses:** `RelayClient` message parsing; permission-bar trigger on
-  `permission_request`; correct `permission_response` payloads; pairing-QR parsing;
-  reconnect/backoff logic.
+- **Relay:** auth accept/reject; permission bridge (allow / deny / **stays-pending on
+  disconnect, re-sent on reconnect**); per-session message routing with multiple
+  concurrent sessions; `session_list` updates as sessions appear/finish; message
+  serialization — with mocked Agent SDK sessions and a fake WS client for an integration
+  pass running scripted parallel sessions.
+- **Glasses:** `RelayClient` message parsing and per-`session` routing; `session_list`
+  drives the ViewPager pages; permission-bar trigger for the visible session vs. badge +
+  haptic for a background session; correct `permission_response` payloads (right `session`
+  + `id`); pairing-QR parsing; reconnect/backoff logic.
 
 ## Build order
 
