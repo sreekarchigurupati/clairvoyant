@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme optimized for AR glasses (high contrast on dark background) -->
+    <color name="background">#FF000000</color>
+    <color name="surface">#FF1A1A2E</color>
+    <color name="surface_variant">#FF16213E</color>
+    <color name="primary">#FF00D4AA</color>
+    <color name="primary_variant">#FF00F5C4</color>
+    <color name="secondary">#FF7B68EE</color>
+    <color name="on_background">#FFFFFFFF</color>
+    <color name="on_surface">#FFE0E0E0</color>
+    <color name="on_primary">#FF000000</color>
+    <color name="error">#FFFF4444</color>
+    <color name="approve_green">#FF00E676</color>
+    <color name="deny_red">#FFFF5252</color>
+    <color name="warning_amber">#FFFFAB40</color>
+    <color name="transparent_overlay">#CC000000</color>
+    <color name="scanner_border">#FF00D4AA</color>
+</resources>

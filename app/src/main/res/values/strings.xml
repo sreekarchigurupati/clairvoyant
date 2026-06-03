@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Clairvoyant</string>
+    <string name="scan_qr">Scan QR Code</string>
+    <string name="scanning">Looking for Claude Code QR…</string>
+    <string name="connected">Connected to Claude Code</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="approve">Approve</string>
+    <string name="deny">Deny</string>
+    <string name="say_approve">Say \"approve\" or \"deny\"</string>
+    <string name="permission_request">Permission Request</string>
+    <string name="no_qr_found">No QR code found. Try again.</string>
+    <string name="camera_permission_required">Camera permission is required to scan QR codes</string>
+    <string name="voice_listening">Listening…</string>
+    <string name="tap_to_scan">Tap to scan</string>
+    <string name="recent_sessions">Recent Sessions</string>
+</resources>
