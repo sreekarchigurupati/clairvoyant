@@ -184,7 +184,8 @@ Served by the relay at `http://<host>:<port>/`. Shows:
 - Live **glasses-connected** status and the current **session list**.
 - A **regenerate token** button.
 
-QR generated client-side in the page (JS QR library).
+QR rendered **server-side** by the relay at `/qr.svg` (the `qrcode` npm package); the page just
+embeds it as an `<img>`. Works offline; no client-side QR library needed.
 
 ### Component 3 — Glasses Android client
 
@@ -294,12 +295,13 @@ side; this protocol is the shared contract between the two halves.
 
 - **Runtime:** Node ≥ 22 (host has v22.12). TypeScript run via `tsx` in dev, compiled with
   `tsc` for the shipped relay. The **hook program is plain dependency-free JS** (no build).
-- **Deps:** `ws` (WebSocket server) and `vitest` (tests) for the relay; a small client-side JS
-  QR library in the dashboard. No `socat` needed (the hook uses `node:net`).
+- **Deps:** `ws` (WebSocket server), `vitest` (tests), and `qrcode` (renders the pairing QR
+  **server-side** as an SVG at `/qr.svg`). No `socat` needed (the hook uses `node:net`).
 - **Hook IPC verdict:** relay → hook replies are `{verdict:"allow"|"deny"|"pass"}` over the Unix
   socket; the hook maps these to a `permissionDecision` or to "no decision".
 - **Transcript tailer:** treats the JSONL as best-effort; renders `assistant` text + `tool_use`
-  and `user` `tool_result`, and **ignores `isSidechain:true` lines** (subagent traffic) in v1.
+  (+ `turn_done`); **skips `thinking`, user `tool_result`, and `isSidechain:true`** (subagent)
+  lines in v1.
 - **Hook timeout:** installed at ~12h so requests effectively stay pending; on timeout Claude
   falls through to the terminal prompt.
 
