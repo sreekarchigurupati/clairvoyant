@@ -1,7 +1,16 @@
 # Clairvoyant — Relay + QR Pairing Design
 
-**Date:** 2026-06-03
-**Status:** Approved (design); ready for implementation planning
+**Date:** 2026-06-03 (revised 2026-06-05 after validating against a live host)
+**Status:** Approved (design); refined for the Node relay build; ready for implementation planning
+
+> **2026-06-05 revisions (Node relay build).** Validated against a running Claude Code host and
+> refined three things: (1) the escalation policy now **defers to Claude Code's own permission
+> decision** (mode-aware pass-through) instead of the relay keeping its own allow-list — see
+> *Escalation policy*; (2) "stays pending indefinitely" becomes "stays pending up to a high
+> configured hook timeout (~12h), then falls through to the terminal prompt" — Claude Code hooks
+> have a timeout and never block forever; (3) the relay **derives each session's
+> `transcript_path`** from `cwd` + `session_id` instead of depending on it being in the
+> PreToolUse payload. The hook IPC verdict is `allow` / `deny` / `pass`.
 
 ## Problem
 
@@ -29,7 +38,8 @@ their terminals** and gives the glasses a remote **monitor + approve** surface o
   user's Claude Code `settings.json`) connects to the relay over a local Unix socket on
   every tool call, the relay routes the decision to the glasses, and the hook **blocks**
   until the glasses answer — then returns `allow`/`deny`. This is Claude Code's documented,
-  stable extension point, and its synchronous blocking gives us "stays pending" for free.
+  stable extension point; its synchronous blocking (up to a high configured hook timeout) is
+  what gives us "stays pending."
 - **Monitoring** the conversation comes from **tailing each session's transcript JSONL**
   (`~/.claude/projects/<project>/<session-id>.jsonl`). This format is **internal and
   undocumented** — the transcript mirror is explicitly best-effort and may break across
@@ -91,20 +101,51 @@ Responsibilities:
 2. **Address discovery:** determine the host's LAN IP and listen port for the QR payload.
 3. **Hook IPC (Unix socket):** listen on a local Unix domain socket (e.g.
    `~/.clairvoyant/relay.sock`, never exposed to the network). The PreToolUse hook connects
-   here per tool call, sending `{session_id, transcript_path, cwd, tool_name, tool_input}`.
+   here per tool call and forwards the **entire** PreToolUse payload — notably
+   `{session_id, cwd, tool_name, tool_input, permission_mode}` (plus `transcript_path` if the
+   running Claude Code version includes it). The relay replies with a verdict of
+   `allow` | `deny` | `pass` (see *Escalation policy* and *Permission bridge*).
 4. **Session registry:** maintain the set of live sessions, keyed by Claude Code
    `session_id`, each with its `cwd` (→ a human title), `transcript_path`, and any pending
    permission request. A session is **added when its hook first fires**; reported to the
-   glasses via `session_list`.
-5. **Escalation policy:** PreToolUse fires for *every* tool call, so the relay decides which
-   to surface. v1 default: **auto-allow a built-in read-only set** (e.g. Read/Grep/Glob and
-   read-only Bash) and **escalate everything else to the glasses**. The policy is
-   configurable; this is a v1 heuristic, refined later.
-6. **Permission bridge:** for an escalated call, send a `permission_request` (tagged with
-   its `session`) to the glasses and **hold the hook connection open** until the matching
-   `permission_response` arrives, then return the decision to the hook. Because the command
-   hook blocks indefinitely, a request **stays pending** across a glasses disconnect and is
-   re-sent on reconnect; the terminal session simply waits. (Fail-open exception below.)
+   glasses via `session_list`. The `transcript_path` is resolved robustly: use the
+   hook-provided `transcript_path` if present, else **locate the file by its globally-unique
+   `session_id`** — glob `~/.claude/projects/*/<session_id>.jsonl` (the `<encoded-cwd>` directory
+   name, cwd with `/`→`-`, is only a fast-path hint since the exact cwd→dir encoding is
+   internal). So monitoring depends on neither that field surviving in the payload nor on
+   guessing the directory encoding.
+5. **Escalation policy (defers to Claude Code).** PreToolUse fires for *every* call, so the
+   relay decides which to surface on the glasses. Rather than keep its own allow-list, the relay
+   **escalates exactly the calls Claude Code would otherwise prompt for at the terminal** and
+   **passes everything else through to Claude's own decision**, keyed on the `permission_mode`
+   in the payload:
+   - **Read-only tools** (Read, Grep, Glob, NotebookRead, …) → **pass** (Claude auto-allows).
+   - `permission_mode = bypassPermissions` → **pass** (Claude runs everything).
+   - `permission_mode = acceptEdits` → **pass** edit tools (Edit/Write/MultiEdit/NotebookEdit —
+     Claude auto-accepts these); escalate the rest.
+   - `permission_mode = plan` → **pass** (Claude gates plan-mode execution itself).
+   - A matching `permissions.allow`/`deny` rule → **pass** (Claude auto-allows / blocks it); a
+     matching `ask` rule → **escalate**.
+   - Otherwise (e.g. default mode, a side-effecting tool, no covering rule) → **escalate**.
+   - **Unknown/future modes** → treated conservatively: escalate non-read tools.
+
+   "**Pass**" means the hook emits **no decision**, so Claude's normal flow runs — it
+   auto-allows, or (for anything it would prompt on that the relay chose not to escalate) shows
+   the **terminal** prompt. This makes the policy **safe by construction**: a misclassification
+   can only change *where* a prompt appears (glasses vs terminal) or add a redundant glasses
+   prompt — it can **never silently bypass** a prompt Claude would have shown. When unsure, the
+   relay escalates. This is intentionally **not** a re-implementation of Claude's full rule
+   matcher (the allow/deny/ask rule check is best-effort); correctness rests on the pass-through
+   fallback, not on matching Claude exactly.
+6. **Permission bridge:** for an escalated call, send a `permission_request` (tagged with its
+   `session`) to the glasses and **hold the hook connection open** until the matching
+   `permission_response` arrives, then return `allow`/`deny` to the hook. The command hook is
+   installed with a **high timeout** (~12h) so a request **stays pending** across a glasses
+   disconnect and is re-sent on reconnect; the terminal session waits rather than auto-denying.
+   Two bounded exceptions: (a) if **no glasses have ever paired**, the relay replies `pass`
+   immediately so the terminal stays usable (fail-open); (b) if the hook timeout is ever
+   reached, Claude Code kills the hook and **falls through to its normal terminal prompt** — the
+   request is not auto-denied. (See *Error handling*.)
 7. **Transcript tailer:** for each known session, tail its `transcript_path` JSONL and
    stream assistant text + tool_use/tool_result to the glasses for monitoring. Best-effort;
    the JSONL schema is internal and may change.
@@ -118,16 +159,21 @@ Files: `relay/src/{index,token,server,hookSocket,sessions,transcript,policy,prot
 ### Component 1a — Host setup / hook installation
 
 A setup step (script or `relay` subcommand) installs a **PreToolUse hook** into the user's
-Claude Code `settings.json` pointing at the bundled hook program, and verifies there are no
-`deny` rules that would override it (deny > hook). The hook program:
+Claude Code `settings.json` pointing at the bundled hook program, with a high `timeout`
+(~43200s / 12h) and a `matcher` of `*` (all tools — the relay does the filtering). It verifies
+there are no `deny` rules that would override an `allow` (deny > hook). The hook program is a
+small **dependency-free Node script** (no build step; only `node:net`/`node:process`; kept
+minimal because it runs once per tool call). It:
 
-- reads the PreToolUse JSON on stdin, connects to the relay Unix socket, forwards the
-  request, and blocks for the decision;
-- emits `{"hookSpecificOutput":{"permissionDecision":"allow"|"deny"}}` accordingly;
-- **fails open** when the relay socket is absent or no glasses have ever paired — it returns
-  no decision (defer), so Claude Code's normal terminal prompt runs and the terminal stays
-  usable when the relay/glasses aren't around. (A request that was already escalated to a
-  *connected-then-dropped* glasses stays pending instead — see error handling.)
+- reads the PreToolUse JSON on stdin, connects to the relay Unix socket, forwards the **whole
+  payload**, and blocks for the relay's verdict;
+- on `allow`/`deny`, emits `{"hookSpecificOutput":{"hookEventName":"PreToolUse",
+  "permissionDecision":"allow"|"deny","permissionDecisionReason":…}}` and exits 0;
+- on `pass`, emits **no decision** (exit 0, no JSON) so Claude's normal flow runs;
+- **fails open** — same "no decision" — when the relay socket is absent/unreachable (relay not
+  running) or the relay reports no glasses have ever paired, so the terminal stays usable when
+  the relay/glasses aren't around. (A call escalated to a *connected-then-dropped* glasses stays
+  pending until answered or the hook timeout — see error handling.)
 
 ### Component 2 — Dashboard website
 
@@ -191,7 +237,7 @@ page. Session-agnostic messages (`hello`, `ready`, `session_list`, `error`) omit
 | `{type:"assistant_delta", session, text}` | streamed assistant text chunk (from transcript) |
 | `{type:"turn_done", session}` | a session finished a turn |
 | `{type:"tool_use", session, id, name, summary}` | Claude is using a tool (display only) |
-| `{type:"permission_request", session, id, tool, description}` | needs approve/deny |
+| `{type:"permission_request", session, id, tool, description, mode?}` | needs approve/deny (`mode` = the session's `permission_mode`, for display) |
 | `{type:"status", session, state}` | thinking / idle / running |
 | `{type:"error", code, message}` | failures |
 
@@ -215,13 +261,16 @@ side; this protocol is the shared contract between the two halves.
 | Host unreachable | Glasses: "Can't reach host — same Wi-Fi? Relay running?" with host:port. |
 | Relay down / no glasses ever paired | Hook **fails open** — defers to Claude Code's normal terminal permission prompt; the terminal stays usable. |
 | Mid-session WS drop | Auto-reconnect with exponential backoff; "Reconnecting…" banner; the relay keeps all sessions and pending requests and re-sends the current `session_list` plus every pending `permission_request` on reconnect. |
-| Pending permission + glasses disconnect | Request **stays pending** — the hook keeps blocking, so the terminal session waits (possibly indefinitely) and the request is re-sent on reconnect. Not auto-denied. |
+| Pending permission + glasses disconnect | Request **stays pending** up to the hook's high timeout (~12h): the hook keeps blocking, the terminal session waits, and the request is re-sent on reconnect. Not auto-denied. |
+| Hook timeout reached (no answer in ~12h) | Claude Code kills the hook; it **falls through to the normal terminal prompt** and the pending request is cleared. Not auto-denied. |
 | Transcript parse error / format change | Monitoring for that session degrades gracefully (banner: "transcript unavailable"); **approval still works** (it rides the hook, not the transcript). |
 
 ## Testing (TDD)
 
-- **Relay:** hook-socket request/response contract; escalation policy (auto-allow read-only
-  vs. escalate); permission bridge (allow / deny / **stays-pending on disconnect, re-sent on
+- **Relay:** hook-socket request/response contract; escalation policy (mode-aware
+  pass vs. escalate: read-only / bypassPermissions / acceptEdits-edits / plan / rule-allowed →
+  pass; else escalate; unknown mode → conservative; assert the safe-by-construction pass
+  fallback); permission bridge (allow / deny / **stays-pending on disconnect, re-sent on
   reconnect** / fail-open when unpaired); session registry add/remove across multiple
   concurrent sessions; `session_list` updates; transcript parsing against fixture JSONL
   (incl. a malformed line → graceful degrade); token auth accept/reject. Integration: a fake
@@ -241,6 +290,19 @@ side; this protocol is the shared contract between the two halves.
 3. Glasses `RelayClient` + `SessionActivity` rewrite (ViewPager/swipe) + pairing-QR parsing.
 4. End-to-end validation on the glasses over the LAN.
 
+## Implementation notes (v1)
+
+- **Runtime:** Node ≥ 22 (host has v22.12). TypeScript run via `tsx` in dev, compiled with
+  `tsc` for the shipped relay. The **hook program is plain dependency-free JS** (no build).
+- **Deps:** `ws` (WebSocket server) and `vitest` (tests) for the relay; a small client-side JS
+  QR library in the dashboard. No `socat` needed (the hook uses `node:net`).
+- **Hook IPC verdict:** relay → hook replies are `{verdict:"allow"|"deny"|"pass"}` over the Unix
+  socket; the hook maps these to a `permissionDecision` or to "no decision".
+- **Transcript tailer:** treats the JSONL as best-effort; renders `assistant` text + `tool_use`
+  and `user` `tool_result`, and **ignores `isSidechain:true` lines** (subagent traffic) in v1.
+- **Hook timeout:** installed at ~12h so requests effectively stay pending; on timeout Claude
+  falls through to the terminal prompt.
+
 ## Out of scope (v1)
 
 - Tailscale / remote (non-LAN) connectivity.
@@ -248,5 +310,6 @@ side; this protocol is the shared contract between the two halves.
   into a running terminal session).
 - WSS / TLS on the relay.
 - Multiple simultaneous glasses clients (multiple paired devices).
-- Re-implementing Claude Code's full permission-rule matching (v1 uses a simple read-only
-  auto-allow heuristic instead).
+- Re-implementing Claude Code's full permission-rule matching. v1 instead **defers to Claude's
+  own decision** via mode-aware pass-through (see *Escalation policy*); the allow/deny/ask rule
+  check is best-effort and safe-by-construction, not exhaustive.
