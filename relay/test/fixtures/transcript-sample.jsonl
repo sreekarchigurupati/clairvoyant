@@ -1,0 +1,6 @@
+{"type":"assistant","isSidechain":false,"sessionId":"S","uuid":"u1","message":{"role":"assistant","content":[{"type":"text","text":"On it - reading the file."}],"stop_reason":"end_turn"}}
+{"type":"assistant","isSidechain":false,"sessionId":"S","uuid":"u2","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me check"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls -la"}}],"stop_reason":"tool_use"}}
+{"type":"user","isSidechain":false,"sessionId":"S","uuid":"u3","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"total 0"}]}}
+{"type":"assistant","isSidechain":true,"sessionId":"S","uuid":"u4","message":{"role":"assistant","content":[{"type":"text","text":"subagent chatter"}],"stop_reason":"end_turn"}}
+{"type":"mode","mode":"default","sessionId":"S"}
+{"type":"assistant", BROKEN
