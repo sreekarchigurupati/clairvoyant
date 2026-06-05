@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clairvoyant Relay</title>
+    <style>
+      :root { --bg:#0b1417; --card:#10201f; --teal:#39d0c4; --fg:#e6f5f2; --dim:#7fa6a0; }
+      * { box-sizing: border-box; }
+      body { margin:0; font:16px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+      .wrap { max-width:720px; margin:0 auto; padding:32px 20px; }
+      h1 { color:var(--teal); font-weight:700; letter-spacing:.5px; margin:0 0 4px; }
+      .sub { color:var(--dim); margin:0 0 28px; }
+      .card { background:var(--card); border:1px solid #1d3633; border-radius:14px; padding:24px; margin-bottom:20px; }
+      .qr { display:flex; gap:24px; align-items:center; flex-wrap:wrap; }
+      .qr img { width:240px; height:240px; background:#fff; border-radius:12px; padding:10px; }
+      code { background:#0a1413; padding:2px 6px; border-radius:6px; color:var(--teal); word-break:break-all; }
+      .row { margin:6px 0; }
+      .label { color:var(--dim); font-size:13px; text-transform:uppercase; letter-spacing:.6px; }
+      .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:8px; vertical-align:middle; }
+      .on { background:var(--teal); box-shadow:0 0 8px var(--teal); }
+      .off { background:#5a6b68; }
+      ul { margin:8px 0 0; padding-left:18px; }
+      button { background:var(--teal); color:#03100e; border:0; border-radius:10px; padding:10px 16px; font-weight:700; cursor:pointer; }
+      button:hover { filter:brightness(1.08); }
+      .muted { color:var(--dim); font-size:13px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Clairvoyant</h1>
+      <p class="sub">Pair your glasses to monitor &amp; approve Claude Code remotely.</p>
+
+      <div class="card">
+        <div class="qr">
+          <img id="qr" alt="pairing QR" src="/qr.svg" />
+          <div>
+            <div class="row"><span class="label">Host</span><br /><code id="host">…</code></div>
+            <div class="row"><span class="label">Port</span><br /><code id="port">…</code></div>
+            <div class="row"><span class="label">Token</span><br /><code id="token">…</code></div>
+            <div class="row" style="margin-top:14px;"><button id="regen">Regenerate token</button></div>
+            <p class="muted">Regenerating invalidates the current QR. Re-scan on the glasses.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row"><span id="dot" class="dot off"></span><span id="conn">No glasses connected</span></div>
+        <div class="row">
+          <span class="label">Sessions</span>
+          <ul id="sessions"><li class="muted">none yet — run Claude Code in a terminal</li></ul>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function loadPair() {
+        const p = await (await fetch("/pair")).json();
+        document.getElementById("host").textContent = p.host;
+        document.getElementById("port").textContent = String(p.port);
+        document.getElementById("token").textContent = p.token;
+      }
+      function refreshQr() {
+        document.getElementById("qr").src = "/qr.svg?t=" + Date.now();
+      }
+      async function poll() {
+        try {
+          const s = await (await fetch("/status")).json();
+          document.getElementById("dot").className = "dot " + (s.glassesConnected ? "on" : "off");
+          document.getElementById("conn").textContent = s.glassesConnected
+            ? "Glasses connected"
+            : "No glasses connected";
+          const ul = document.getElementById("sessions");
+          ul.innerHTML = s.sessions.length
+            ? s.sessions.map((x) => `<li>${x.title} <span class="muted">(${x.state})</span></li>`).join("")
+            : '<li class="muted">none yet — run Claude Code in a terminal</li>';
+        } catch {}
+      }
+      document.getElementById("regen").addEventListener("click", async () => {
+        await fetch("/regenerate-token", { method: "POST" });
+        await loadPair();
+        refreshQr();
+      });
+      loadPair();
+      poll();
+      setInterval(poll, 2000);
+    </script>
+  </body>
+</html>
