@@ -7,6 +7,7 @@ import { resolveTranscriptPath, sockPath } from "./paths.js";
 import { createHttpServer, type DashboardState } from "./server.js";
 import { SessionRegistry } from "./sessions.js";
 import { loadOrCreateToken, regenerateToken } from "./token.js";
+import { TranscriptTailer } from "./transcriptTailer.js";
 
 export interface RelayConfig {
   home?: string;
@@ -33,6 +34,7 @@ export function createRelay(config: RelayConfig = {}): Relay {
   const socket = config.socketPath ?? sockPath(home);
 
   const registry = new SessionRegistry();
+  const tailers = new Map<string, TranscriptTailer>();
   let idCounter = 0;
   const nextId = () => String(++idCounter);
 
@@ -86,6 +88,14 @@ export function createRelay(config: RelayConfig = {}): Relay {
     glasses.send({ type: "session_list", sessions: registry.list() });
   });
 
+  // Start a transcript tailer for each newly-attached session (best-effort monitoring).
+  registry.on("added", (session: { id: string; transcriptPath: string | null }) => {
+    if (!session.transcriptPath || tailers.has(session.id)) return;
+    const tailer = new TranscriptTailer(session.transcriptPath, session.id, (m) => glasses.send(m));
+    tailers.set(session.id, tailer);
+    tailer.start();
+  });
+
   return {
     get host() {
       return host;
@@ -102,6 +112,8 @@ export function createRelay(config: RelayConfig = {}): Relay {
       runtimePort = (httpServer.address() as AddressInfo).port;
     },
     async stop() {
+      for (const tailer of tailers.values()) tailer.stop();
+      tailers.clear();
       glasses.close();
       await hookServer.stop();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
