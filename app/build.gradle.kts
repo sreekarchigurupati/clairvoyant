@@ -47,8 +47,15 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
 
-    // Material Design
+    // Material Design (provides TabLayout)
     implementation("com.google.android.material:material:1.11.0")
+
+    // Session UI
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
+
+    // Relay WebSocket client
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // CameraX for QR scanning
     val cameraxVersion = "1.3.1"
@@ -60,9 +67,11 @@ dependencies {
     // ML Kit Barcode Scanning
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
-    // WebView
-    implementation("androidx.webkit:webkit:1.9.0")
-
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // Unit tests (JVM). org.json provides a real impl so protocol code runs off-device.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
