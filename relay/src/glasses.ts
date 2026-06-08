@@ -55,14 +55,17 @@ export class GlassesServer {
           ws.send(JSON.stringify({ type: "ready" } satisfies ServerMessage));
           this.onAuth();
         } else {
+          // Close only after the error frame is flushed, so the client reliably sees the
+          // bad_token reason before the socket closes (otherwise it looks like a transient
+          // drop and the client reconnect-loops with the same bad token).
           ws.send(
             JSON.stringify({
               type: "error",
               code: "bad_token",
               message: "Pairing expired, re-scan QR.",
             } satisfies ServerMessage),
+            () => ws.close(),
           );
-          ws.close();
         }
         return;
       }
