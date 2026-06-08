@@ -14,4 +14,9 @@
     <string name="voice_listening">Listening…</string>
     <string name="tap_to_scan">Tap to scan</string>
     <string name="recent_sessions">Recent Sessions</string>
+    <string name="connecting">Connecting…</string>
+    <string name="reconnecting">Reconnecting…</string>
+    <string name="waiting_for_sessions">Waiting for a Claude Code session…\nRun claude in a hooked project.</string>
+    <string name="waiting_for_activity">Waiting for activity…</string>
+    <string name="pairing_expired">Pairing expired — re-scan the QR.</string>
 </resources>

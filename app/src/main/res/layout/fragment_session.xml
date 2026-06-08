@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/transcriptRecycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:paddingVertical="8dp"
+        android:clipToPadding="false"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/permissionBar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <TextView
+        android:id="@+id/emptyHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/waiting_for_activity"
+        android:textColor="@color/on_surface"
+        android:textSize="14sp"
+        android:alpha="0.6"
+        android:fontFamily="monospace"
+        app:layout_constraintTop_toTopOf="@id/transcriptRecycler"
+        app:layout_constraintBottom_toBottomOf="@id/transcriptRecycler"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Permission action bar (shown when this session has a pending request) -->
+    <LinearLayout
+        android:id="@+id/permissionBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/surface"
+        android:padding="12dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <TextView
+            android:id="@+id/permissionDescription"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/permission_request"
+            android:textColor="@color/warning_amber"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:maxLines="3"
+            android:ellipsize="end" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/say_approve"
+                android:textColor="@color/on_surface"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:alpha="0.6"
+                android:layout_marginEnd="16dp"
+                android:layout_gravity="center_vertical" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDeny"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="@string/deny"
+                android:textSize="14sp"
+                android:fontFamily="monospace"
+                app:backgroundTint="@color/deny_red"
+                android:textColor="@color/on_background"
+                android:layout_marginEnd="8dp"
+                app:cornerRadius="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnApprove"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:text="@string/approve"
+                android:textSize="14sp"
+                android:fontFamily="monospace"
+                app:backgroundTint="@color/approve_green"
+                android:textColor="@color/on_primary"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
