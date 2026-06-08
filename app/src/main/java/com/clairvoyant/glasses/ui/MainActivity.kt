@@ -50,25 +50,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatus() {
         val prefs = getSharedPreferences("clairvoyant", MODE_PRIVATE)
-        val lastSessionUrl = prefs.getString("last_session_url", null)
-        val lastSessionTime = prefs.getLong("last_session_time", 0)
+        val host = prefs.getString("relay_host", null)
+        val port = prefs.getInt("relay_port", 0)
+        val token = prefs.getString("relay_token", null)
+        val pairedAt = prefs.getLong("last_pair_time", 0)
 
-        if (lastSessionUrl != null && lastSessionTime > 0) {
+        if (host != null && token != null && port > 0) {
             binding.statusDot.setBackgroundColor(getColor(R.color.warning_amber))
-            binding.statusText.text = "Last session available"
-            binding.sessionInfo.text = "Tap status card to reconnect"
-            binding.lastAction.text = "Last connected: ${formatTime(lastSessionTime)}"
+            binding.statusText.text = "Paired"
+            binding.sessionInfo.text = "$host:$port"
+            binding.lastAction.text = "Last paired: ${formatTime(pairedAt)}"
             binding.lastAction.visibility = View.VISIBLE
 
             binding.statusCard.setOnClickListener {
-                val intent = Intent(this, SessionActivity::class.java)
-                intent.putExtra(SessionActivity.EXTRA_SESSION_URL, lastSessionUrl)
+                val intent = Intent(this, SessionActivity::class.java).apply {
+                    putExtra(SessionActivity.EXTRA_HOST, host)
+                    putExtra(SessionActivity.EXTRA_PORT, port)
+                    putExtra(SessionActivity.EXTRA_TOKEN, token)
+                }
                 startActivity(intent)
             }
         } else {
             binding.statusDot.setBackgroundColor(getColor(R.color.on_surface))
             binding.statusText.text = getString(R.string.disconnected)
-            binding.sessionInfo.text = "No active session"
+            binding.sessionInfo.text = "Not paired"
             binding.lastAction.visibility = View.GONE
             binding.statusCard.setOnClickListener(null)
         }

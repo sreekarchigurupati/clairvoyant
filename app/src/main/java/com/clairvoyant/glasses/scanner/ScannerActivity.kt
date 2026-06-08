@@ -15,9 +15,9 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.clairvoyant.glasses.ClairvoyantApp
 import com.clairvoyant.glasses.R
 import com.clairvoyant.glasses.databinding.ActivityScannerBinding
+import com.clairvoyant.glasses.network.Pairing
 import com.clairvoyant.glasses.session.SessionActivity
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -125,8 +125,8 @@ class ScannerActivity : AppCompatActivity() {
                                         if (!wifiOnlyMode &&
                                             (barcode.valueType == Barcode.TYPE_URL ||
                                                 barcode.valueType == Barcode.TYPE_TEXT)) {
-                                            val url = barcode.url?.url ?: barcode.rawValue ?: continue
-                                            handleScannedUrl(url)
+                                            val payload = barcode.url?.url ?: barcode.rawValue ?: continue
+                                            handlePairingPayload(payload)
                                             break
                                         }
                                     }
@@ -191,33 +191,35 @@ class ScannerActivity : AppCompatActivity() {
         }
     }
 
-    private fun handleScannedUrl(url: String) {
+    private fun handlePairingPayload(raw: String) {
         if (hasScanned) return
-
-        if (ClairvoyantApp.isValidClaudeCodeUrl(url)) {
+        val pairing = Pairing.parse(raw)
+        if (pairing != null) {
             hasScanned = true
-            Log.i(TAG, "Valid Claude Code URL scanned")
+            Log.i(TAG, "Valid pairing QR scanned: ${pairing.host}:${pairing.port}")
 
             runOnUiThread {
-                binding.scannerStatus.text = "QR Found! Connecting..."
+                binding.scannerStatus.text = "Paired! Connecting…"
                 binding.scannerStatus.setTextColor(getColor(R.color.approve_green))
             }
 
-            // Save session URL
-            getSharedPreferences("clairvoyant", MODE_PRIVATE)
-                .edit()
-                .putString("last_session_url", url)
-                .putLong("last_session_time", System.currentTimeMillis())
+            getSharedPreferences("clairvoyant", MODE_PRIVATE).edit()
+                .putString("relay_host", pairing.host)
+                .putInt("relay_port", pairing.port)
+                .putString("relay_token", pairing.token)
+                .putLong("last_pair_time", System.currentTimeMillis())
                 .apply()
 
-            // Launch session activity
-            val intent = Intent(this, SessionActivity::class.java)
-            intent.putExtra(SessionActivity.EXTRA_SESSION_URL, url)
+            val intent = Intent(this, SessionActivity::class.java).apply {
+                putExtra(SessionActivity.EXTRA_HOST, pairing.host)
+                putExtra(SessionActivity.EXTRA_PORT, pairing.port)
+                putExtra(SessionActivity.EXTRA_TOKEN, pairing.token)
+            }
             startActivity(intent)
             finish()
         } else {
             runOnUiThread {
-                binding.scannerStatus.text = "Not a Claude Code QR. Keep scanning..."
+                binding.scannerStatus.text = "Not a Clairvoyant pairing QR. Keep scanning…"
                 binding.scannerStatus.setTextColor(getColor(R.color.warning_amber))
             }
         }
