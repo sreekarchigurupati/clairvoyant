@@ -67,7 +67,9 @@ class SessionFragment : Fragment() {
         val b = _binding ?: return
         val pending = host?.store?.data(sessionId)?.pending
         if (pending != null) {
-            b.permissionDescription.text = "${pending.tool}: ${pending.description}"
+            // describeTool already prefixes file tools (e.g. "Write /x"); don't double up.
+            val d = pending.description
+            b.permissionDescription.text = if (d.startsWith(pending.tool)) d else "${pending.tool}: $d"
             b.permissionBar.visibility = View.VISIBLE
         } else {
             b.permissionBar.visibility = View.GONE
