@@ -40,7 +40,7 @@ class RelayClient(
     private var listener: Listener? = null
     private var ws: WebSocket? = null
     private val backoff = Backoff()
-    private var stopped = false
+    @Volatile private var stopped = false
 
     fun connect(host: String, port: Int, token: String, listener: Listener) {
         this.url = "ws://$host:$port/ws"
@@ -70,12 +70,15 @@ class RelayClient(
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val msg = RelayProtocol.parseServerMessage(text) ?: return
+                // Mark terminal auth failure synchronously on the reader thread, so the onClosed
+                // that follows the relay's close sees stopped=true and won't schedule a reconnect.
+                if (msg is ServerMessage.ErrorMessage && msg.code == "bad_token") stopped = true
                 post {
                     val l = listener ?: return@post
                     when (msg) {
                         is ServerMessage.Ready -> { backoff.reset(); l.onReady() }
                         is ServerMessage.ErrorMessage ->
-                            if (msg.code == "bad_token") { stopped = true; l.onAuthFailed(msg.message) }
+                            if (msg.code == "bad_token") l.onAuthFailed(msg.message)
                             else l.onServerMessage(msg)
                         else -> l.onServerMessage(msg)
                     }
