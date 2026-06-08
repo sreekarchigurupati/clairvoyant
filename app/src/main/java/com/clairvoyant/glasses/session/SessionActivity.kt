@@ -183,7 +183,8 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
 
     private fun ensureConnectivityThenStart() {
         if (relayStarted) return
-        if (wifiConnector.hasInternet()) { startRelay(); return }
+        // A loopback relay (e.g. reached over `adb reverse` for dev/testing) needs no LAN route.
+        if (isLoopbackHost() || wifiConnector.hasInternet()) { startRelay(); return }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             setStatus(false, "No network, and Wi-Fi join needs Android 10+"); return
         }
@@ -237,6 +238,9 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
             }
         })
     }
+
+    private fun isLoopbackHost(): Boolean =
+        host == "127.0.0.1" || host.equals("localhost", ignoreCase = true) || host == "::1"
 
     private fun startRelay() {
         if (relayStarted) return
