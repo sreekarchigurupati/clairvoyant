@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Dark theme optimized for AR glasses (high contrast on dark background) -->
+    <!-- Waveguide-display palette: pure black renders as fully transparent on the
+         glasses, so "surfaces" are black too — structure comes from outline strokes,
+         never from filled panels (those glow as gray boxes on glass). -->
     <color name="background">#FF000000</color>
-    <color name="surface">#FF1A1A2E</color>
-    <color name="surface_variant">#FF16213E</color>
+    <color name="surface">#FF000000</color>
+    <color name="surface_variant">#FF000000</color>
+    <color name="outline">#66FFFFFF</color>
     <color name="primary">#FF00D4AA</color>
     <color name="primary_variant">#FF00F5C4</color>
     <color name="secondary">#FF7B68EE</color>
