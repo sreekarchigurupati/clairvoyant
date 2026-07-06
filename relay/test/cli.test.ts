@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { hookCommand, main } from "../src/index.js";
+import { hookCommand, main, parseStartOptions } from "../src/index.js";
 
 let dir: string;
 beforeEach(() => {
@@ -26,6 +26,25 @@ describe("CLI", () => {
     const s = JSON.parse(fs.readFileSync(settings, "utf8"));
     expect(s.hooks.PreToolUse[0].hooks[0].command).toMatch(/clairvoyant-hook\.mjs/);
     expect(s.hooks.PreToolUse[0].matcher).toBe("*");
+  });
+
+  it("parseStartOptions reads --host and --port flags", () => {
+    expect(parseStartOptions(["--host", "100.64.0.7", "--port", "5000"], {})).toEqual({
+      host: "100.64.0.7",
+      port: 5000,
+    });
+  });
+
+  it("parseStartOptions falls back to CLV_HOST / CLV_PORT env", () => {
+    expect(parseStartOptions([], { CLV_HOST: "100.64.0.7", CLV_PORT: "5000" })).toEqual({
+      host: "100.64.0.7",
+      port: 5000,
+    });
+  });
+
+  it("parseStartOptions prefers flags over env and defaults to empty", () => {
+    expect(parseStartOptions(["--host", "a"], { CLV_HOST: "b" })).toEqual({ host: "a" });
+    expect(parseStartOptions([], {})).toEqual({});
   });
 
   it("unknown command sets a non-zero exit code", async () => {

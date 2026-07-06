@@ -31,6 +31,25 @@ node dist/index.js start          # prod
 npm run dev -- start              # or, from source via tsx
 ```
 
+`start` accepts `--host` / `--port` (or `CLV_HOST` / `CLV_PORT`) to control what the pairing
+QR advertises and where the server listens — useful when the auto-detected LAN IPv4 picks the
+wrong interface (e.g. with a Tailscale utun up).
+
+## Remote relay over Tailscale
+
+The glasses stay a plain LAN device — no VPN on them. To reach a relay that's only on your
+tailnet, run a proxy on any machine that's on **both** the glasses' Wi-Fi LAN and the tailnet
+(the laptop you're carrying, a Pi at home):
+
+```bash
+node dist/index.js proxy 100.x.y.z          # upstream relay's Tailscale address[:port]
+```
+
+The proxy pipes HTTP + WebSocket traffic verbatim to the upstream relay, but rewrites `/pair`
+and `/qr.svg` to advertise its own LAN address — so you scan the **proxy's** dashboard QR.
+The channel token passes through untouched; auth still terminates at the real relay, and the
+tailnet leg is WireGuard-encrypted.
+
 Open the printed dashboard URL, scan the QR with the glasses (same Wi-Fi LAN), and run Claude
 Code as usual in any terminal.
 

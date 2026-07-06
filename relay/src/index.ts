@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { installHook } from "./install.js";
 import { sockPath, tokenPath } from "./paths.js";
+import { createProxy, parseUpstream } from "./proxy.js";
 import { createRelay } from "./relay.js";
 
 export function hookCommand(): string {
@@ -12,6 +13,26 @@ export function hookCommand(): string {
 
 function defaultSettingsPath(): string {
   return path.join(process.env.HOME ?? process.cwd(), ".claude", "settings.json");
+}
+
+/**
+ * Address overrides for `start`/`proxy`: `--host`/`--port` flags win over
+ * `CLV_HOST`/`CLV_PORT` env vars. `host` controls what the pairing QR advertises
+ * (e.g. a Tailscale 100.x address); `port` what the server listens on.
+ */
+export function parseStartOptions(
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): { host?: string; port?: number } {
+  const opts: { host?: string; port?: number } = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--host" && args[i + 1]) opts.host = args[++i];
+    else if (args[i] === "--port" && args[i + 1]) opts.port = Number(args[++i]);
+  }
+  if (!opts.host && env.CLV_HOST) opts.host = env.CLV_HOST;
+  if (opts.port === undefined && env.CLV_PORT) opts.port = Number(env.CLV_PORT);
+  if (opts.port !== undefined && !Number.isInteger(opts.port)) delete opts.port;
+  return opts;
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
@@ -27,8 +48,30 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     return;
   }
 
+  if (cmd === "proxy") {
+    const target = argv[1];
+    if (!target) {
+      console.error("Usage: clairvoyant-relay proxy <upstream-host[:port]> [--host lanIP] [--port n]");
+      process.exitCode = 1;
+      return;
+    }
+    const upstream = parseUpstream(target);
+    const opts = parseStartOptions(argv.slice(2));
+    const proxy = createProxy({
+      upstreamHost: upstream.host,
+      upstreamPort: upstream.port,
+      ...opts,
+    });
+    await proxy.start();
+    console.log("Clairvoyant proxy listening:");
+    console.log(`  dashboard  http://${proxy.host}:${proxy.port}/`);
+    console.log(`  upstream   ${upstream.host}:${upstream.port}`);
+    console.log("Scan the QR from THIS dashboard on the glasses; traffic is piped upstream.");
+    return;
+  }
+
   if (cmd === "start") {
-    const relay = createRelay();
+    const relay = createRelay(parseStartOptions(argv.slice(1)));
     await relay.start();
     console.log("Clairvoyant relay listening:");
     console.log(`  dashboard  http://${relay.host}:${relay.port}/`);
@@ -38,7 +81,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     return;
   }
 
-  console.error(`Unknown command: ${cmd}. Usage: clairvoyant-relay [start|install-hook [settingsPath]]`);
+  console.error(
+    `Unknown command: ${cmd}. Usage: clairvoyant-relay [start [--host h] [--port n]|proxy <host[:port]>|install-hook [settingsPath]]`,
+  );
   process.exitCode = 1;
 }
 
