@@ -64,4 +64,11 @@ describe("dashboard HTTP", () => {
   it("unknown route → 404", async () => {
     expect((await fetch(`${base}/nope`)).status).toBe(404);
   });
+
+  it("GET /qrcode.min.js serves the client-side QR bundle", async () => {
+    const res = await fetch(`${base}/qrcode.min.js`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/javascript");
+    expect(await res.text()).toContain("QRCode");
+  });
 });

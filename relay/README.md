@@ -34,6 +34,10 @@ npm run dev -- start              # or, from source via tsx
 Open the printed dashboard URL, scan the QR with the glasses (same Wi-Fi LAN), and run Claude
 Code as usual in any terminal.
 
+If the glasses aren't on the LAN yet, the dashboard's **Wi-Fi QR** panel generates a standard
+`WIFI:` QR from an SSID + password — entirely in the browser (`public/qrcode.min.js`), so the
+credentials are never sent to or stored by the relay. Scan it first, then the pairing QR.
+
 ## Testing without the glasses
 
 A stand-in client authenticates and auto-answers permission prompts:
@@ -62,6 +66,15 @@ CLV_TOKEN=$(cat ~/.clairvoyant/channel-token) \
 npm test            # vitest, full suite
 npm run test:watch
 npm run build       # tsc type-check + emit to dist/
+```
+
+`public/qrcode.min.js` is a committed bundle of the `qrcode` package's browser build. To
+regenerate it (run outside any Yarn PnP root, e.g. a temp dir with `node_modules/qrcode` +
+`node_modules/dijkstrajs` copied in):
+
+```bash
+npx esbuild node_modules/qrcode/lib/browser.js --bundle --minify \
+  --format=iife --global-name=QRCode --outfile=public/qrcode.min.js
 ```
 
 Pure logic (`protocol`, `policy`, `describe`, `transcriptParser`) is isolated from I/O

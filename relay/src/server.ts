@@ -64,6 +64,18 @@ export function createHttpServer(state: DashboardState, publicDir: string): http
       res.end(svg);
       return;
     }
+    if (method === "GET" && url === "/qrcode.min.js") {
+      const file = path.join(publicDir, "qrcode.min.js");
+      try {
+        const js = fs.readFileSync(file);
+        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+        res.end(js);
+      } catch {
+        res.writeHead(404);
+        res.end("qrcode.min.js not found");
+      }
+      return;
+    }
     if (method === "POST" && url === "/regenerate-token") {
       const token = state.regenerate();
       sendJson(res, { token });

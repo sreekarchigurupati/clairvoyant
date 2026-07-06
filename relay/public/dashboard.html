@@ -15,6 +15,9 @@
       .qr { display:flex; gap:24px; align-items:center; flex-wrap:wrap; }
       .qr img { width:240px; height:240px; background:#fff; border-radius:12px; padding:10px; }
       code { background:#0a1413; padding:2px 6px; border-radius:6px; color:var(--teal); word-break:break-all; }
+      input { background:#0a1413; border:1px solid #1d3633; border-radius:8px; color:var(--fg); padding:8px 10px; width:240px; font:inherit; }
+      input:focus { outline:2px solid var(--teal); outline-offset:1px; }
+      canvas#wifi-qr { background:#fff; border-radius:12px; padding:10px; width:240px; height:240px; }
       .row { margin:6px 0; }
       .label { color:var(--dim); font-size:13px; text-transform:uppercase; letter-spacing:.6px; }
       .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:8px; vertical-align:middle; }
@@ -40,6 +43,24 @@
             <div class="row"><span class="label">Token</span><br /><code id="token">…</code></div>
             <div class="row" style="margin-top:14px;"><button id="regen">Regenerate token</button></div>
             <p class="muted">Regenerating invalidates the current QR. Re-scan on the glasses.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row"><span class="label">Wi-Fi QR (optional)</span></div>
+        <p class="muted" style="margin:6px 0 14px;">
+          Glasses not on this network yet? Generate a standard Wi-Fi QR and scan it first, then
+          the pairing QR above. Generated in your browser — never sent to or stored by the relay.
+        </p>
+        <div class="qr">
+          <canvas id="wifi-qr" width="240" height="240" hidden></canvas>
+          <div>
+            <div class="row"><span class="label">Network name (SSID)</span><br />
+              <input id="wifi-ssid" type="text" autocomplete="off" /></div>
+            <div class="row"><span class="label">Password</span><br />
+              <input id="wifi-pass" type="password" autocomplete="off" /></div>
+            <div class="row" style="margin-top:14px;"><button id="wifi-gen">Show Wi-Fi QR</button></div>
           </div>
         </div>
       </div>
@@ -84,6 +105,24 @@
       loadPair();
       poll();
       setInterval(poll, 2000);
+
+      // Wi-Fi QR — generated entirely client-side (see /qrcode.min.js); the
+      // credentials never leave this page.
+      function wifiEscape(v) {
+        return v.replace(/[\\;,:"]/g, (c) => "\\" + c);
+      }
+      document.getElementById("wifi-gen").addEventListener("click", async () => {
+        const ssid = document.getElementById("wifi-ssid").value.trim();
+        if (!ssid) return;
+        const pass = document.getElementById("wifi-pass").value;
+        const payload = pass
+          ? `WIFI:S:${wifiEscape(ssid)};T:WPA;P:${wifiEscape(pass)};;`
+          : `WIFI:S:${wifiEscape(ssid)};T:nopass;;`;
+        const canvas = document.getElementById("wifi-qr");
+        await QRCode.toCanvas(canvas, payload, { margin: 1, width: 240 });
+        canvas.hidden = false;
+      });
     </script>
+    <script src="/qrcode.min.js"></script>
   </body>
 </html>
