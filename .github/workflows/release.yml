@@ -40,16 +40,21 @@ jobs:
       - name: Pack tarball
         run: npm pack
 
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
+      # Upload before publishing so a bad/expired npm token can't cost us the GitHub Release
+      # asset — the tarball is always attached; npm publish is attempted separately below.
       - uses: actions/upload-artifact@v4
         with:
           name: relay-tarball
           path: relay/clairvoyant-relay-*.tgz
           if-no-files-found: error
+
+      # Best-effort: a failure here (e.g. token needs OTP) is surfaced but doesn't block the
+      # release. Use an npm **Automation** token in NPM_TOKEN so CI isn't prompted for 2FA.
+      - name: Publish to npm
+        continue-on-error: true
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   app:
     name: Build signed APK
