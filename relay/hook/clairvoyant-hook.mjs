@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-// Clairvoyant PreToolUse hook. Dependency-free. Reads PreToolUse JSON on stdin, forwards it
-// to the relay's unix socket, and maps the verdict to a Claude Code permission decision.
-// Any uncertainty (relay down, closed early, "pass") => no output => Claude's normal flow.
+// Clairvoyant hook. Dependency-free. Reads hook JSON on stdin, forwards it to the relay's
+// unix socket, and maps the verdict to a Claude Code decision.
+//
+// Registered on two events:
+//   PermissionRequest — fires only when Claude Code has already decided to show a permission
+//                       prompt; the relay mirrors it to the glasses and this hook answers it.
+//   PreToolUse        — session tracking only (registry/transcript discovery); never answers.
+//
+// Any uncertainty (relay down, closed early, "pass") => no output => Claude's normal prompt.
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -17,12 +23,17 @@ function passNoDecision() {
   process.exit(0); // no stdout: Claude Code runs its own permission flow
 }
 
-function emit(verdict, reason) {
+function emit(reply) {
+  // "allow_always" => allow this call AND persist the rules Claude suggested (updatedPermissions),
+  // so future matching calls are auto-allowed and never prompt again.
+  const decision =
+    reply.verdict === "allow_always"
+      ? { behavior: "allow", updatedPermissions: reply.updatedPermissions ?? [] }
+      : { behavior: reply.verdict }; // "allow" | "deny"
   const out = JSON.stringify({
     hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: verdict,
-      permissionDecisionReason: reason || "Clairvoyant glasses",
+      hookEventName: "PermissionRequest",
+      decision,
     },
   });
   // Exit only after the pipe has flushed, or output can be truncated.
@@ -30,6 +41,14 @@ function emit(verdict, reason) {
 }
 
 function connect() {
+  let isPermissionRequest = false;
+  try {
+    isPermissionRequest = JSON.parse(input).hook_event_name === "PermissionRequest";
+  } catch {
+    passNoDecision();
+    return;
+  }
+
   let done = false;
   const finish = (fn) => {
     if (done) return;
@@ -51,8 +70,11 @@ function connect() {
       finish(passNoDecision);
       return;
     }
-    if (reply.verdict === "allow" || reply.verdict === "deny") {
-      finish(() => emit(reply.verdict, reply.reason));
+    if (
+      isPermissionRequest &&
+      (reply.verdict === "allow" || reply.verdict === "deny" || reply.verdict === "allow_always")
+    ) {
+      finish(() => emit(reply));
     } else {
       finish(passNoDecision);
     }

@@ -17,8 +17,11 @@ sealed interface ServerMessage {
     data class TurnDone(val session: String) : ServerMessage
     data class ToolUse(val session: String, val id: String, val name: String, val summary: String) : ServerMessage
     data class PermissionRequest(
-        val session: String, val id: String, val tool: String, val description: String, val mode: String?
+        val session: String, val id: String, val tool: String, val description: String,
+        val mode: String?, val canAlwaysAllow: Boolean
     ) : ServerMessage
+    /** A pending request was answered elsewhere (terminal/other device); dismiss its prompt. */
+    data class PermissionCancel(val session: String, val id: String) : ServerMessage
     data class Status(val session: String, val state: String) : ServerMessage
     data class ErrorMessage(val code: String, val message: String) : ServerMessage
 }
@@ -45,8 +48,10 @@ object RelayProtocol {
             )
             "permission_request" -> ServerMessage.PermissionRequest(
                 o.optString("session"), o.optString("id"), o.optString("tool"), o.optString("description"),
-                if (o.has("mode") && !o.isNull("mode")) o.optString("mode") else null
+                if (o.has("mode") && !o.isNull("mode")) o.optString("mode") else null,
+                o.optBoolean("canAlwaysAllow", false)
             )
+            "permission_cancel" -> ServerMessage.PermissionCancel(o.optString("session"), o.optString("id"))
             "status" -> ServerMessage.Status(o.optString("session"), o.optString("state"))
             "error" -> ServerMessage.ErrorMessage(o.optString("code"), o.optString("message"))
             else -> null

@@ -1,9 +1,9 @@
 import type { Server as HttpServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { parseClientMessage } from "./protocol.js";
-import type { ServerMessage } from "./protocol.js";
+import type { ResponseDecision, ServerMessage } from "./protocol.js";
 
-export type ResponseCallback = (session: string, id: string, decision: "allow" | "deny") => void;
+export type ResponseCallback = (session: string, id: string, decision: ResponseDecision) => void;
 export type AuthCallback = () => void;
 
 export class GlassesServer {

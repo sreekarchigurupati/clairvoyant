@@ -96,6 +96,7 @@ const bash = (session: string) => ({
   tool_name: "Bash",
   tool_input: { command: "rm -rf build" },
   permission_mode: "default",
+  hook_event_name: "PermissionRequest",
 });
 const read = (session: string) => ({
   session_id: session,
@@ -103,6 +104,7 @@ const read = (session: string) => ({
   tool_name: "Read",
   tool_input: { file_path: "/a" },
   permission_mode: "default",
+  hook_event_name: "PreToolUse",
 });
 
 async function authed(): Promise<GlassesClient> {

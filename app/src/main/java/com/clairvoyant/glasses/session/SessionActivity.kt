@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.viewpager2.widget.ViewPager2
 import com.clairvoyant.glasses.R
 import com.clairvoyant.glasses.databinding.ActivitySessionBinding
+import com.clairvoyant.glasses.input.RokidKeyReceiver
 import com.clairvoyant.glasses.network.WifiConnector
 import com.clairvoyant.glasses.relay.RelayClient
 import com.clairvoyant.glasses.relay.ServerMessage
@@ -43,6 +44,7 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
     override val store = SessionStore()
     private val fragments = HashMap<String, SessionFragment>()
 
+    private var rokidKeys: RokidKeyReceiver? = null
     private var host: String = ""
     private var port: Int = 0
     private var token: String = ""
@@ -77,7 +79,40 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
         wifiConnector = WifiConnector(this)
         setupPager()
         setupVoiceCommands()
+        setupRokidKeys()
         ensureConnectivityThenStart()
+    }
+
+    /** Rokid gestures: tap = approve, long-press = always-allow, temple click = deny, 2-finger swipe = switch. */
+    private fun setupRokidKeys() {
+        val receiver = RokidKeyReceiver(object : RokidKeyReceiver.Callback {
+            override fun onSingleTap() {
+                runOnUiThread { answerVisible(visibleSessionId(), "allow", "Approved") }
+            }
+            override fun onLongPressTap() {
+                runOnUiThread { alwaysAllowVisible(visibleSessionId()) }
+            }
+            override fun onTempleClick() {
+                runOnUiThread { answerVisible(visibleSessionId(), "deny", "Denied") }
+            }
+            override fun onTwoFingerSwipeForward() = runOnUiThread { stepSession(+1) }
+            override fun onTwoFingerSwipeBack() = runOnUiThread { stepSession(-1) }
+        })
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, RokidKeyReceiver.filter(), RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(receiver, RokidKeyReceiver.filter())
+        }
+        rokidKeys = receiver
+    }
+
+    /** Move to the next/previous session page, wrapping around. */
+    private fun stepSession(delta: Int) {
+        val count = pagerAdapter.itemCount
+        if (count == 0) return
+        val next = (binding.sessionPager.currentItem + delta + count) % count
+        binding.sessionPager.setCurrentItem(next, true)
     }
 
     // -- ViewPager / tabs --
@@ -163,10 +198,20 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
 
     private fun onPending(session: String) {
         val visible = pagerAdapter.idAt(binding.sessionPager.currentItem)
+        // Cleared (answered elsewhere / cancelled): just refresh the bar; never navigate or buzz.
+        if (store.data(session)?.pending == null) {
+            fragments[session]?.refreshPending()
+            refreshBadges()
+            return
+        }
         if (session == visible) {
             fragments[session]?.refreshPending()
         } else {
-            // Background session: badge its tab and buzz so the user can swipe to it.
+            // A hidden session needs an answer: jump straight to it — the prompt is the
+            // whole point of wearing the glasses, and tab badges aren't reachable here.
+            val index = store.ids().indexOf(session)
+            if (index >= 0) binding.sessionPager.setCurrentItem(index, true)
+            fragments[session]?.refreshPending()
             refreshBadges()
             binding.root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         }
@@ -276,24 +321,66 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
         Toast.makeText(this, toast, Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Long-press = "always allow": only when the visible prompt offers it (Claude supplied
+     * rule suggestions). Otherwise a long-press falls back to a one-time allow so the gesture
+     * is never a dead end.
+     */
+    private fun alwaysAllowVisible(sid: String?) {
+        val pending = sid?.let { store.data(it)?.pending } ?: return
+        if (pending.canAlwaysAllow) {
+            answerPermission(sid, pending.id, "allow_always")
+            Toast.makeText(this, "Always allowed", Toast.LENGTH_SHORT).show()
+        } else {
+            answerVisible(sid, "allow", "Approved")
+        }
+    }
+
     override fun onVoiceListeningStateChanged(listening: Boolean) = runOnUiThread {
         binding.voiceStatus.text = if (listening) "🎤 Listening…" else "🎤 Voice ready"
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+    /**
+     * Gesture keys are intercepted at dispatch, before the focused view sees them: a
+     * touchpad tap arrives as ENTER and would otherwise "click" whichever view happens to
+     * hold focus (e.g. a session tab title) instead of answering the prompt. Both DOWN and
+     * UP are consumed so a focused view never sees half a key press.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val sid = visibleSessionId()
         val pending = sid?.let { store.data(it)?.pending }
-        when (keyCode) {
-            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_VOLUME_UP -> {
-                if (sid != null && pending != null) { answerPermission(sid, pending.id, "allow"); return true }
+        val down = event.action == KeyEvent.ACTION_DOWN
+        when (event.keyCode) {
+            // Touchpad tap. Approve the visible prompt; without one it's a no-op. The system
+            // consumes the ENTER DOWN while disambiguating tap from the long-press AI gesture,
+            // so only the UP reliably reaches the app — act on that.
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
+                if (event.action == KeyEvent.ACTION_UP && pending != null) answerVisible(sid, "allow", "Approved")
+                return true
+            }
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                if (pending != null) {
+                    if (down) answerVisible(sid, "allow", "Approved")
+                    return true
+                }
             }
             KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                if (sid != null && pending != null) { answerPermission(sid, pending.id, "deny"); return true }
+                if (pending != null) {
+                    if (down) answerVisible(sid, "deny", "Denied")
+                    return true
+                }
             }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> { sid?.let { fragments[it]?.scrollBy(300) }; return true }
-            KeyEvent.KEYCODE_DPAD_LEFT -> { sid?.let { fragments[it]?.scrollBy(-300) }; return true }
+            // Touchpad swipes (any direction the firmware maps them to) scroll the transcript.
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (down) sid?.let { fragments[it]?.scrollBy(300) }
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> {
+                if (down) sid?.let { fragments[it]?.scrollBy(-300) }
+                return true
+            }
         }
-        return super.onKeyDown(keyCode, event)
+        return super.dispatchKeyEvent(event)
     }
 
     // -- Lifecycle --
@@ -317,6 +404,7 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
 
     override fun onDestroy() {
         super.onDestroy()
+        rokidKeys?.let { runCatching { unregisterReceiver(it) } }
         voiceListener?.destroy()
         relay.close()
         wifiConnector.release()

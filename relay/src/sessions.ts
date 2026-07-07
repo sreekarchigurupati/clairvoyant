@@ -7,6 +7,7 @@ export interface PendingRequest {
   tool: string;
   description: string;
   mode?: string;
+  canAlwaysAllow?: boolean;
 }
 
 export interface Session {

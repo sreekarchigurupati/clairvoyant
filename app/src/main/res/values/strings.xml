@@ -7,7 +7,10 @@
     <string name="disconnected">Disconnected</string>
     <string name="approve">Approve</string>
     <string name="deny">Deny</string>
-    <string name="say_approve">Say \"approve\" or \"deny\"</string>
+    <string name="always_allow">Always</string>
+    <string name="say_approve">Tap = approve · Button = deny · or say it</string>
+    <string name="say_approve_always">Tap = approve · Long-press = always · Button = deny</string>
+    <string name="gesture_hints">swipe scroll · tap approve · button deny · 2-finger sessions</string>
     <string name="permission_request">Permission Request</string>
     <string name="no_qr_found">No QR code found. Try again.</string>
     <string name="camera_permission_required">Camera permission is required to scan QR codes</string>

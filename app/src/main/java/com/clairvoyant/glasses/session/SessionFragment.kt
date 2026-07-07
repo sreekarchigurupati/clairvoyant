@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.clairvoyant.glasses.R
 import com.clairvoyant.glasses.databinding.FragmentSessionBinding
 
 /**
@@ -34,6 +35,7 @@ class SessionFragment : Fragment() {
         }
         binding.transcriptRecycler.adapter = adapter
         binding.btnApprove.setOnClickListener { answer("allow") }
+        binding.btnAlways.setOnClickListener { answer("allow_always") }
         binding.btnDeny.setOnClickListener { answer("deny") }
         return binding.root
     }
@@ -70,6 +72,11 @@ class SessionFragment : Fragment() {
             // describeTool already prefixes file tools (e.g. "Write /x"); don't double up.
             val d = pending.description
             b.permissionDescription.text = if (d.startsWith(pending.tool)) d else "${pending.tool}: $d"
+            // "Always allow" only when Claude offered rules to persist for this prompt.
+            b.btnAlways.visibility = if (pending.canAlwaysAllow) View.VISIBLE else View.GONE
+            b.permissionHint.setText(
+                if (pending.canAlwaysAllow) R.string.say_approve_always else R.string.say_approve
+            )
             b.permissionBar.visibility = View.VISIBLE
         } else {
             b.permissionBar.visibility = View.GONE

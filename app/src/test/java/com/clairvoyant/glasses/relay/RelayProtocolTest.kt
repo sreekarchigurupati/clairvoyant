@@ -31,12 +31,19 @@ class RelayProtocolTest {
 
     @Test fun parsesPermissionRequestWithOptionalMode() {
         assertEquals(
-            ServerMessage.PermissionRequest("s1", "7", "Bash", "rm -rf build", "default"),
-            RelayProtocol.parseServerMessage("""{"type":"permission_request","session":"s1","id":"7","tool":"Bash","description":"rm -rf build","mode":"default"}""")
+            ServerMessage.PermissionRequest("s1", "7", "Bash", "rm -rf build", "default", true),
+            RelayProtocol.parseServerMessage("""{"type":"permission_request","session":"s1","id":"7","tool":"Bash","description":"rm -rf build","mode":"default","canAlwaysAllow":true}""")
         )
         assertEquals(
-            ServerMessage.PermissionRequest("s1", "7", "Bash", "ls", null),
+            ServerMessage.PermissionRequest("s1", "7", "Bash", "ls", null, false),
             RelayProtocol.parseServerMessage("""{"type":"permission_request","session":"s1","id":"7","tool":"Bash","description":"ls"}""")
+        )
+    }
+
+    @Test fun parsesPermissionCancel() {
+        assertEquals(
+            ServerMessage.PermissionCancel("s1", "7"),
+            RelayProtocol.parseServerMessage("""{"type":"permission_cancel","session":"s1","id":"7"}""")
         )
     }
 

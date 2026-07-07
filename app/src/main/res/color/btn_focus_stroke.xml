@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Focus ring for touchpad (d-pad) navigation: bright white when focused, invisible otherwise. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/on_background" />
+    <item android:color="@android:color/transparent" />
+</selector>

@@ -49,10 +49,22 @@ class SessionStoreTest {
 
     @Test fun permissionSetAndClear() {
         val store = SessionStore()
-        val c = store.apply(ServerMessage.PermissionRequest("s1", "7", "Bash", "rm -rf build", "default"))
+        val c = store.apply(ServerMessage.PermissionRequest("s1", "7", "Bash", "rm -rf build", "default", true))
         assertEquals(SessionStore.Change.PendingChanged("s1"), c)
         assertEquals("7", store.data("s1")!!.pending!!.id)
+        assertEquals(true, store.data("s1")!!.pending!!.canAlwaysAllow)
         store.clearPending("s1")
+        assertNull(store.data("s1")!!.pending)
+    }
+
+    @Test fun permissionCancelClearsMatchingPending() {
+        val store = SessionStore()
+        store.apply(ServerMessage.PermissionRequest("s1", "7", "Bash", "ls", null, false))
+        // A stale cancel for a different id is ignored.
+        assertEquals(SessionStore.Change.None, store.apply(ServerMessage.PermissionCancel("s1", "old")))
+        assertEquals("7", store.data("s1")!!.pending!!.id)
+        // The matching cancel clears it.
+        assertEquals(SessionStore.Change.PendingChanged("s1"), store.apply(ServerMessage.PermissionCancel("s1", "7")))
         assertNull(store.data("s1")!!.pending)
     }
 

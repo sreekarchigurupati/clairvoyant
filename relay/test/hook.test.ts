@@ -49,31 +49,59 @@ function runHook(
   });
 }
 
+const permReq = (over: object = {}) => ({
+  hook_event_name: "PermissionRequest",
+  tool_name: "Bash",
+  tool_input: { command: "ls" },
+  ...over,
+});
+
 describe("clairvoyant-hook.mjs", () => {
-  it("emits permissionDecision=allow when the relay replies allow", async () => {
+  it("emits decision allow on PermissionRequest when the relay replies allow", async () => {
     const server = await fakeRelay(sock, { verdict: "allow", reason: "glasses" });
-    const { stdout, code } = await runHook({ CLAIRVOYANT_SOCK: sock }, { tool_name: "Bash", tool_input: { command: "ls" } });
+    const { stdout, code } = await runHook({ CLAIRVOYANT_SOCK: sock }, permReq());
     server.close();
     expect(code).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
       hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "allow",
-        permissionDecisionReason: "glasses",
+        hookEventName: "PermissionRequest",
+        decision: { behavior: "allow" },
       },
     });
   });
 
-  it("emits permissionDecision=deny when the relay replies deny", async () => {
+  it("emits decision deny on PermissionRequest when the relay replies deny", async () => {
     const server = await fakeRelay(sock, { verdict: "deny" });
-    const { stdout } = await runHook({ CLAIRVOYANT_SOCK: sock }, { tool_name: "Bash", tool_input: {} });
+    const { stdout } = await runHook({ CLAIRVOYANT_SOCK: sock }, permReq());
     server.close();
-    expect(JSON.parse(stdout).hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(JSON.parse(stdout).hookSpecificOutput.decision).toEqual({ behavior: "deny" });
+  });
+
+  it("emits allow + updatedPermissions on allow_always", async () => {
+    const rules = [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "ls:*" }], behavior: "allow", destination: "localSettings" }];
+    const server = await fakeRelay(sock, { verdict: "allow_always", updatedPermissions: rules });
+    const { stdout } = await runHook({ CLAIRVOYANT_SOCK: sock }, permReq());
+    server.close();
+    expect(JSON.parse(stdout).hookSpecificOutput.decision).toEqual({
+      behavior: "allow",
+      updatedPermissions: rules,
+    });
   });
 
   it("emits nothing on pass", async () => {
     const server = await fakeRelay(sock, { verdict: "pass" });
-    const { stdout, code } = await runHook({ CLAIRVOYANT_SOCK: sock }, { tool_name: "Read", tool_input: {} });
+    const { stdout, code } = await runHook({ CLAIRVOYANT_SOCK: sock }, permReq());
+    server.close();
+    expect(stdout.trim()).toBe("");
+    expect(code).toBe(0);
+  });
+
+  it("never emits a decision for PreToolUse (tracking only), even if the relay replies allow", async () => {
+    const server = await fakeRelay(sock, { verdict: "allow" });
+    const { stdout, code } = await runHook(
+      { CLAIRVOYANT_SOCK: sock },
+      permReq({ hook_event_name: "PreToolUse" }),
+    );
     server.close();
     expect(stdout.trim()).toBe("");
     expect(code).toBe(0);

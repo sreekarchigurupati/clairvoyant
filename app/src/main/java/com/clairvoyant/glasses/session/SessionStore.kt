@@ -10,7 +10,10 @@ sealed interface TranscriptItem {
 }
 
 /** A pending permission ask for one session (null when none). */
-data class Pending(val id: String, val tool: String, val description: String, val mode: String?)
+data class Pending(
+    val id: String, val tool: String, val description: String, val mode: String?,
+    val canAlwaysAllow: Boolean = false,
+)
 
 /** Mutable per-session view state. */
 class SessionData(val id: String, var title: String, var state: String) {
@@ -57,8 +60,13 @@ class SessionStore {
             else { s.state = msg.state; Change.SessionsChanged }
         }
         is ServerMessage.PermissionRequest -> {
-            ensure(msg.session).pending = Pending(msg.id, msg.tool, msg.description, msg.mode)
+            ensure(msg.session).pending = Pending(msg.id, msg.tool, msg.description, msg.mode, msg.canAlwaysAllow)
             Change.PendingChanged(msg.session)
+        }
+        is ServerMessage.PermissionCancel -> {
+            val s = map[msg.session]
+            if (s?.pending?.id == msg.id) { s.pending = null; Change.PendingChanged(msg.session) }
+            else Change.None
         }
         ServerMessage.Ready -> Change.None
         is ServerMessage.ErrorMessage -> Change.None

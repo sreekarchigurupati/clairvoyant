@@ -28,14 +28,15 @@ const req = (over: Partial<Record<string, unknown>> = {}) =>
     tool_name: "Bash",
     tool_input: { command: "rm -rf build" },
     permission_mode: "default",
+    hook_event_name: "PermissionRequest",
     ...over,
   }) as any;
 
 describe("PermissionBridge", () => {
-  it("passes read-only tools without bothering the glasses, but registers the session", async () => {
+  it("passes non-PermissionRequest events (tracking only), but registers the session", async () => {
     const { bridge, registry, sent } = makeBridge();
     const reply = await bridge.handle(
-      req({ tool_name: "Read", tool_input: { file_path: "/a" } }),
+      req({ hook_event_name: "PreToolUse" }),
       new AbortController().signal,
     );
     expect(reply).toEqual({ verdict: "pass" });
@@ -60,6 +61,35 @@ describe("PermissionBridge", () => {
     await new Promise((r) => setTimeout(r, 0));
     bridge.resolve("1", "deny");
     expect(await p).toEqual({ verdict: "deny" });
+  });
+
+  it("advertises canAlwaysAllow and returns updatedPermissions on allow_always", async () => {
+    const { bridge, sent } = makeBridge();
+    const suggestions = [{ type: "addRules", rules: [{ toolName: "Bash" }] }];
+    const p = bridge.handle(req({ permission_suggestions: suggestions }), new AbortController().signal);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent[0]).toMatchObject({ type: "permission_request", canAlwaysAllow: true });
+    bridge.resolve("1", "allow_always");
+    expect(await p).toEqual({ verdict: "allow_always", updatedPermissions: suggestions });
+  });
+
+  it("marks canAlwaysAllow false when no suggestions, and degrades allow_always to allow", async () => {
+    const { bridge, sent } = makeBridge();
+    const p = bridge.handle(req(), new AbortController().signal);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent[0]).toMatchObject({ canAlwaysAllow: false });
+    bridge.resolve("1", "allow_always"); // nothing to persist → plain allow
+    expect(await p).toEqual({ verdict: "allow" });
+  });
+
+  it("sends permission_cancel to the glasses when answered elsewhere (aborted)", async () => {
+    const { bridge, sent } = makeBridge();
+    const ac = new AbortController();
+    const p = bridge.handle(req(), ac.signal);
+    await new Promise((r) => setTimeout(r, 0));
+    ac.abort();
+    await p;
+    expect(sent).toContainEqual({ type: "permission_cancel", session: "s1", id: "1" });
   });
 
   it("fails open (pass) when no glasses have ever paired", async () => {

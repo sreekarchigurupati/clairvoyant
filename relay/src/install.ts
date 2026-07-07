@@ -24,7 +24,6 @@ export function installHook(
   }
 
   settings.hooks ??= {};
-  settings.hooks.PreToolUse ??= [];
 
   const deny = settings.permissions?.deny;
   if (Array.isArray(deny) && deny.length > 0) {
@@ -33,15 +32,21 @@ export function installHook(
     );
   }
 
-  const already = settings.hooks.PreToolUse.some((entry: any) =>
-    (entry?.hooks ?? []).some((h: any) => h?.command === hookCommand),
-  );
-  if (already) return { changed: false, warnings };
-
-  settings.hooks.PreToolUse.push({
-    matcher: "*",
-    hooks: [{ type: "command", command: hookCommand, timeout }],
-  });
+  // PermissionRequest carries the prompts; PreToolUse is session tracking only.
+  let changed = false;
+  for (const event of ["PermissionRequest", "PreToolUse"]) {
+    settings.hooks[event] ??= [];
+    const already = settings.hooks[event].some((entry: any) =>
+      (entry?.hooks ?? []).some((h: any) => h?.command === hookCommand),
+    );
+    if (already) continue;
+    settings.hooks[event].push({
+      matcher: "*",
+      hooks: [{ type: "command", command: hookCommand, timeout }],
+    });
+    changed = true;
+  }
+  if (!changed) return { changed: false, warnings };
 
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
