@@ -42,7 +42,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     const settings = argv[1] ?? defaultSettingsPath();
     const result = installHook(settings, hookCommand());
     console.log(
-      result.changed ? `Installed PreToolUse hook into ${settings}` : `Hook already present in ${settings}`,
+      result.changed
+        ? `Installed PermissionRequest + PreToolUse hooks into ${settings}`
+        : `Hook already present in ${settings}`,
     );
     for (const w of result.warnings) console.warn("⚠ " + w);
     return;

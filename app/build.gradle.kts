@@ -1,6 +1,46 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+// Version can be overridden from CI (the release tag): -PversionName=1.2.3 -PversionCode=4.
+val appVersionName = (project.findProperty("versionName") as String?) ?: "1.0"
+val appVersionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+
+// Release signing is driven by a keystore + credentials supplied out-of-band (a local
+// keystore.properties for manual builds, or env vars in CI). When none is present the
+// release build stays unsigned so the project still compiles without secrets.
+data class ReleaseSigning(
+    val storeFile: java.io.File,
+    val storePassword: String,
+    val keyAlias: String,
+    val keyPassword: String,
+)
+
+val releaseSigning: ReleaseSigning? = run {
+    val propsFile = rootProject.file("keystore.properties")
+    if (propsFile.exists()) {
+        val props = Properties().apply { FileInputStream(propsFile).use { load(it) } }
+        return@run ReleaseSigning(
+            rootProject.file(props.getProperty("storeFile")),
+            props.getProperty("storePassword"),
+            props.getProperty("keyAlias"),
+            props.getProperty("keyPassword"),
+        )
+    }
+    val ksPath = System.getenv("ANDROID_KEYSTORE_PATH")
+    if (ksPath != null) {
+        return@run ReleaseSigning(
+            file(ksPath),
+            System.getenv("ANDROID_KEYSTORE_PASSWORD"),
+            System.getenv("ANDROID_KEY_ALIAS"),
+            System.getenv("ANDROID_KEY_PASSWORD"),
+        )
+    }
+    null
 }
 
 android {
@@ -11,8 +51,19 @@ android {
         applicationId = "com.clairvoyant.glasses"
         minSdk = 28 // Rokid glasses run Android 12+, but 28 for broader compat
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
+    }
+
+    signingConfigs {
+        releaseSigning?.let { s ->
+            create("release") {
+                storeFile = s.storeFile
+                storePassword = s.storePassword
+                keyAlias = s.keyAlias
+                keyPassword = s.keyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -22,6 +73,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

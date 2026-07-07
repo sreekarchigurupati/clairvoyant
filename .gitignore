@@ -18,3 +18,14 @@ local.properties
 
 # Logs
 *.log
+
+# Signing material — NEVER commit these
+keystore.properties
+*.keystore
+*.jks
+
+# Build/release artifacts
+node_modules/
+relay/dist/
+relay/*.tgz
+out/
