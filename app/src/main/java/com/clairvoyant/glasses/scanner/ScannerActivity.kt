@@ -203,17 +203,30 @@ class ScannerActivity : AppCompatActivity() {
                 binding.scannerStatus.setTextColor(getColor(R.color.approve_green))
             }
 
-            getSharedPreferences("clairvoyant", MODE_PRIVATE).edit()
+            val editor = getSharedPreferences("clairvoyant", MODE_PRIVATE).edit()
                 .putString("relay_host", pairing.host)
                 .putInt("relay_port", pairing.port)
                 .putString("relay_token", pairing.token)
                 .putLong("last_pair_time", System.currentTimeMillis())
-                .apply()
+            val fallback = pairing.fallback
+            if (fallback != null) {
+                editor.putString("relay_fhost", fallback.host)
+                    .putInt("relay_fport", fallback.port)
+                    .putBoolean("relay_ftls", fallback.tls)
+            } else {
+                editor.remove("relay_fhost").remove("relay_fport").remove("relay_ftls")
+            }
+            editor.apply()
 
             val intent = Intent(this, SessionActivity::class.java).apply {
                 putExtra(SessionActivity.EXTRA_HOST, pairing.host)
                 putExtra(SessionActivity.EXTRA_PORT, pairing.port)
                 putExtra(SessionActivity.EXTRA_TOKEN, pairing.token)
+                pairing.fallback?.let {
+                    putExtra(SessionActivity.EXTRA_FHOST, it.host)
+                    putExtra(SessionActivity.EXTRA_FPORT, it.port)
+                    putExtra(SessionActivity.EXTRA_FTLS, it.tls)
+                }
             }
             startActivity(intent)
             finish()

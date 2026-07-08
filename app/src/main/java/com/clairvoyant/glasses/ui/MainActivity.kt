@@ -67,6 +67,11 @@ class MainActivity : AppCompatActivity() {
                     putExtra(SessionActivity.EXTRA_HOST, host)
                     putExtra(SessionActivity.EXTRA_PORT, port)
                     putExtra(SessionActivity.EXTRA_TOKEN, token)
+                    prefs.getString("relay_fhost", null)?.let { fhost ->
+                        putExtra(SessionActivity.EXTRA_FHOST, fhost)
+                        putExtra(SessionActivity.EXTRA_FPORT, prefs.getInt("relay_fport", 443))
+                        putExtra(SessionActivity.EXTRA_FTLS, prefs.getBoolean("relay_ftls", true))
+                    }
                 }
                 startActivity(intent)
             }

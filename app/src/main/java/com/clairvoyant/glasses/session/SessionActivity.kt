@@ -19,6 +19,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.clairvoyant.glasses.R
 import com.clairvoyant.glasses.databinding.ActivitySessionBinding
 import com.clairvoyant.glasses.input.RokidKeyReceiver
+import com.clairvoyant.glasses.network.Endpoint
 import com.clairvoyant.glasses.network.WifiConnector
 import com.clairvoyant.glasses.relay.RelayClient
 import com.clairvoyant.glasses.relay.ServerMessage
@@ -49,6 +50,7 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
     private var host: String = ""
     private var port: Int = 0
     private var token: String = ""
+    private var fallback: Endpoint? = null
     private var relayStarted = false
     private var awaitingWifiEnable = false
     private var awaitingWifiScan = false
@@ -57,6 +59,9 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
         const val EXTRA_HOST = "relay_host"
         const val EXTRA_PORT = "relay_port"
         const val EXTRA_TOKEN = "relay_token"
+        const val EXTRA_FHOST = "relay_fhost"
+        const val EXTRA_FPORT = "relay_fport"
+        const val EXTRA_FTLS = "relay_ftls"
         private const val TAG = "ClairvoyantSession"
         private const val PREFS = "clairvoyant"
         private const val KEY_SSID = "hotspot_ssid"
@@ -72,6 +77,9 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
         host = intent.getStringExtra(EXTRA_HOST) ?: ""
         port = intent.getIntExtra(EXTRA_PORT, 0)
         token = intent.getStringExtra(EXTRA_TOKEN) ?: ""
+        fallback = intent.getStringExtra(EXTRA_FHOST)?.let {
+            Endpoint(it, intent.getIntExtra(EXTRA_FPORT, 443), intent.getBooleanExtra(EXTRA_FTLS, true))
+        }
         if (host.isEmpty() || port == 0 || token.isEmpty()) {
             Toast.makeText(this, "No relay pairing", Toast.LENGTH_SHORT).show()
             finish(); return
@@ -296,8 +304,9 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
     private fun startRelay() {
         if (relayStarted) return
         relayStarted = true
-        Log.i(TAG, "Connecting to relay ws://$host:$port/ws")
-        relay.connect(host, port, token, this)
+        Log.i(TAG, "Connecting to relay ws://$host:$port/ws" +
+            (fallback?.let { f -> ", fallback ${if (f.tls) "wss" else "ws"}://${f.host}:${f.port}/ws" } ?: ""))
+        relay.connect(listOfNotNull(Endpoint(host, port, false), fallback), token, this)
     }
 
     // -- Voice + keys: act on the visible session --
