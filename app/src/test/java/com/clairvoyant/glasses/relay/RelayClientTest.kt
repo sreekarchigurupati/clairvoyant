@@ -1,5 +1,6 @@
 package com.clairvoyant.glasses.relay
 
+import com.clairvoyant.glasses.network.Endpoint
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.WebSocket
@@ -70,6 +71,78 @@ class RelayClientTest {
         assertEquals("7", resp.getString("id"))
         assertEquals("allow", resp.getString("decision"))
 
+        client.close()
+    }
+
+    @Test fun endpointUrlBuildsWsAndWss() {
+        val c = RelayClient(poster = inlinePoster, scheduler = noopScheduler)
+        assertEquals("ws://10.0.0.5:4317/ws", c.endpointUrl(Endpoint("10.0.0.5", 4317, false)))
+        assertEquals(
+            "wss://mac.tail1234.ts.net:443/ws",
+            c.endpointUrl(Endpoint("mac.tail1234.ts.net", 443, true)),
+        )
+    }
+
+    @Test fun fallsThroughEndpointsThenBacksOffFromIndexZero() {
+        val delays = mutableListOf<Long>()
+        val urls = mutableListOf<String>()
+        val client = RelayClient(
+            poster = inlinePoster,
+            scheduler = { d, block -> delays.add(d); if (delays.size < 4) block() },
+            opener = { url -> urls.add(url); false }, // every dial fails synchronously
+        )
+        client.connect(
+            listOf(Endpoint("lan.local", 4317, false), Endpoint("mac.ts.net", 443, true)),
+            "tok",
+            object : RelayClient.Listener {
+                override fun onConnecting() {}
+                override fun onReady() {}
+                override fun onServerMessage(msg: ServerMessage) {}
+                override fun onClosed(reason: String) {}
+                override fun onAuthFailed(message: String) {}
+            },
+        )
+        // cycle 1: lan then funnel (immediate advance), backoff, cycle 2 restarts at lan
+        assertEquals(
+            listOf("ws://lan.local:4317/ws", "wss://mac.ts.net:443/ws", "ws://lan.local:4317/ws"),
+            urls.take(3),
+        )
+        assertEquals(0L, delays[0])   // within-cycle advance is immediate
+        assertTrue(delays[1] >= 500L) // cross-cycle uses Backoff
+    }
+
+    @Test fun dialsFallbackWhenLanRefusesConnection() {
+        // A port that refuses: bind a socket, note the port, close it again.
+        val dead = java.net.ServerSocket(0)
+        val deadPort = dead.localPort
+        dead.close()
+
+        val fromClient = LinkedBlockingQueue<String>()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+            override fun onMessage(ws: WebSocket, text: String) { fromClient.put(text) }
+        }))
+
+        val client = RelayClient(
+            poster = inlinePoster,
+            scheduler = { _, block -> block() }, // advance immediately, no timers in tests
+        )
+        client.connect(
+            listOf(
+                Endpoint("127.0.0.1", deadPort, false),
+                Endpoint(server.hostName, server.port, false),
+            ),
+            "tok",
+            object : RelayClient.Listener {
+                override fun onConnecting() {}
+                override fun onReady() {}
+                override fun onServerMessage(msg: ServerMessage) {}
+                override fun onClosed(reason: String) {}
+                override fun onAuthFailed(message: String) {}
+            },
+        )
+        // The hello reaching the mock server proves the fallback endpoint was dialed.
+        val hello = JSONObject(fromClient.poll(5, TimeUnit.SECONDS))
+        assertEquals("hello", hello.getString("type"))
         client.close()
     }
 

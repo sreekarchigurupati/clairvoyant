@@ -2,6 +2,7 @@ package com.clairvoyant.glasses.relay
 
 import android.os.Handler
 import android.os.Looper
+import com.clairvoyant.glasses.network.Endpoint
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -16,9 +17,18 @@ fun interface MainPoster { fun post(block: () -> Unit) }
 fun interface Scheduler { fun schedule(delayMs: Long, block: () -> Unit) }
 
 /**
- * Token-authenticated WebSocket client for the relay. One socket at a time; auto-reconnects
- * with [Backoff] on transient drops, stops permanently on a bad-token error or [close].
- * All [Listener] callbacks are delivered via [poster] (the main thread on-device).
+ * Dials one URL; returns false to signal synchronous failure. Test seam only —
+ * production leaves it null and lets OkHttp's async callbacks drive.
+ */
+fun interface SocketOpener { fun open(url: String): Boolean }
+
+/**
+ * Token-authenticated WebSocket client for the relay. Dials the pairing's endpoints in
+ * order (LAN first, then the funnel/tunnel fallback); non-final endpoints get a short
+ * connect timeout so being off-LAN fails fast. One socket at a time; auto-reconnects
+ * with [Backoff] on transient drops (each fresh cycle restarts LAN-first), stops
+ * permanently on a bad-token error or [close]. All [Listener] callbacks are delivered
+ * via [poster] (the main thread on-device).
  */
 class RelayClient(
     private val http: OkHttpClient = OkHttpClient.Builder()
@@ -26,6 +36,7 @@ class RelayClient(
         .build(),
     private val poster: MainPoster = defaultPoster(),
     private val scheduler: Scheduler = defaultScheduler(),
+    private val opener: SocketOpener? = null,
 ) {
     interface Listener {
         fun onConnecting()
@@ -35,21 +46,30 @@ class RelayClient(
         fun onAuthFailed(message: String)   // terminal — caller should re-pair
     }
 
-    private var url = ""
+    private var endpoints: List<Endpoint> = emptyList()
+    private var endpointIndex = 0
     private var token = ""
     private var listener: Listener? = null
     private var ws: WebSocket? = null
     private val backoff = Backoff()
     @Volatile private var stopped = false
 
-    fun connect(host: String, port: Int, token: String, listener: Listener) {
-        this.url = "ws://$host:$port/ws"
+    fun connect(endpoints: List<Endpoint>, token: String, listener: Listener) {
+        require(endpoints.isNotEmpty()) { "at least one endpoint required" }
+        this.endpoints = endpoints
+        this.endpointIndex = 0
         this.token = token
         this.listener = listener
         this.stopped = false
         backoff.reset()
         open()
     }
+
+    fun connect(host: String, port: Int, token: String, listener: Listener) =
+        connect(listOf(Endpoint(host, port, false)), token, listener)
+
+    internal fun endpointUrl(ep: Endpoint): String =
+        "${if (ep.tls) "wss" else "ws"}://${ep.host}:${ep.port}/ws"
 
     fun sendPermissionResponse(session: String, id: String, decision: String) {
         ws?.send(RelayProtocol.permissionResponse(session, id, decision))
@@ -62,9 +82,21 @@ class RelayClient(
     }
 
     private fun open() {
+        val url = endpointUrl(endpoints[endpointIndex])
         post { listener?.onConnecting() }
+        if (opener != null) { // test seam
+            if (!opener.open(url)) scheduleReconnect("dial failed")
+            return
+        }
+        // Non-final endpoints (LAN when a fallback exists) get a short connect timeout:
+        // on the wrong network the LAN dial should fail fast, not hang.
+        val client = if (endpointIndex < endpoints.size - 1) {
+            http.newBuilder().connectTimeout(3, TimeUnit.SECONDS).build()
+        } else {
+            http
+        }
         val req = Request.Builder().url(url).build()
-        ws = http.newWebSocket(req, object : WebSocketListener() {
+        ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 webSocket.send(RelayProtocol.hello(token))
             }
@@ -98,7 +130,13 @@ class RelayClient(
         if (stopped) return
         ws = null
         post { listener?.onClosed(reason) }
-        scheduler.schedule(backoff.nextDelayMs()) { if (!stopped) open() }
+        if (endpointIndex < endpoints.size - 1) {
+            endpointIndex++ // same cycle: try the next endpoint immediately
+            scheduler.schedule(0) { if (!stopped) open() }
+        } else {
+            endpointIndex = 0 // cycle exhausted: back off, restart LAN-first
+            scheduler.schedule(backoff.nextDelayMs()) { if (!stopped) open() }
+        }
     }
 
     private fun post(block: () -> Unit) = poster.post(block)
