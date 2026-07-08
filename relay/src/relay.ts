@@ -4,7 +4,7 @@ import { GlassesServer } from "./glasses.js";
 import { HookSocketServer } from "./hookSocket.js";
 import { PermissionBridge } from "./permissionBridge.js";
 import { resolveTranscriptPath, sockPath } from "./paths.js";
-import { createHttpServer, type DashboardState } from "./server.js";
+import { createHttpServer, type DashboardState, type FallbackEndpoint } from "./server.js";
 import { SessionRegistry } from "./sessions.js";
 import { loadOrCreateToken, regenerateToken } from "./token.js";
 import { TranscriptTailer } from "./transcriptTailer.js";
@@ -20,6 +20,8 @@ export interface RelayConfig {
 export interface Relay {
   start(): Promise<void>;
   stop(): Promise<void>;
+  /** Advertise a second dialable address (funnel/tunnel) in the pairing QR. */
+  setFallback(f: FallbackEndpoint): void;
   readonly host: string;
   readonly port: number;
   readonly token: string;
@@ -40,6 +42,7 @@ export function createRelay(config: RelayConfig = {}): Relay {
 
   let glasses!: GlassesServer;
   let runtimePort = desiredPort;
+  let fallback: FallbackEndpoint | undefined;
 
   const dashboardState: DashboardState = {
     host,
@@ -49,6 +52,7 @@ export function createRelay(config: RelayConfig = {}): Relay {
     get token() {
       return token;
     },
+    fallback: () => fallback,
     glassesConnected: () => glasses.isConnected(),
     sessions: () => registry.list(),
     regenerate: () => {
@@ -129,6 +133,9 @@ export function createRelay(config: RelayConfig = {}): Relay {
     },
     get token() {
       return token;
+    },
+    setFallback(f: FallbackEndpoint) {
+      fallback = f;
     },
     async start() {
       await hookServer.start();

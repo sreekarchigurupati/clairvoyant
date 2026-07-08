@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { hookCommand, main, parseStartOptions } from "../src/index.js";
+import { hookCommand, main, parseAdvertiseUrl, parseStartOptions } from "../src/index.js";
 
 let dir: string;
 beforeEach(() => {
@@ -45,6 +45,38 @@ describe("CLI", () => {
   it("parseStartOptions prefers flags over env and defaults to empty", () => {
     expect(parseStartOptions(["--host", "a"], { CLV_HOST: "b" })).toEqual({ host: "a" });
     expect(parseStartOptions([], {})).toEqual({});
+  });
+
+  it("parseStartOptions reads --funnel", () => {
+    expect(parseStartOptions(["--funnel"], {})).toEqual({ funnel: true });
+  });
+
+  it("parseStartOptions reads --advertise-url", () => {
+    expect(parseStartOptions(["--advertise-url", "https://x.ngrok.io"], {})).toEqual({
+      advertiseUrl: "https://x.ngrok.io",
+    });
+  });
+
+  it("parseStartOptions rejects --funnel with --advertise-url", () => {
+    expect(() => parseStartOptions(["--funnel", "--advertise-url", "https://x.io"], {})).toThrow(
+      /mutually exclusive/,
+    );
+  });
+
+  it("parseAdvertiseUrl: https defaults to 443/tls", () => {
+    expect(parseAdvertiseUrl("https://x.ngrok.io")).toEqual({
+      host: "x.ngrok.io",
+      port: 443,
+      tls: true,
+    });
+  });
+
+  it("parseAdvertiseUrl: explicit port and http", () => {
+    expect(parseAdvertiseUrl("http://tun.example.com:8080")).toEqual({
+      host: "tun.example.com",
+      port: 8080,
+      tls: false,
+    });
   });
 
   it("unknown command sets a non-zero exit code", async () => {
