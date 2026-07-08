@@ -93,7 +93,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     await relay.start();
     let fallbackNote = "";
     if (opts.funnel) {
-      const funnel = await enableFunnel(relay.port);
+      // Abort startup cleanly if funnel setup fails — don't leave a half-configured
+      // relay listening without the fallback the user asked for.
+      const funnel = await enableFunnel(relay.port).catch(async (err: unknown) => {
+        await relay.stop();
+        throw err;
+      });
       relay.setFallback({ host: funnel.host, port: funnel.port, tls: funnel.tls });
       fallbackNote = `  funnel     wss://${funnel.host}/ws (public, token-gated)\n`;
       const teardown = () => {
