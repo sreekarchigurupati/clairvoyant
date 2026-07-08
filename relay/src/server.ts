@@ -3,17 +3,28 @@ import * as http from "node:http";
 import path from "node:path";
 import QRCode from "qrcode";
 
+/** A second dialable relay address (e.g. Tailscale Funnel); tls=true means wss://. */
+export interface FallbackEndpoint {
+  host: string;
+  port: number;
+  tls: boolean;
+}
+
 export interface DashboardState {
   host: string;
   port: number;
   token: string;
+  fallback?: () => FallbackEndpoint | undefined;
   glassesConnected: () => boolean;
   sessions: () => { id: string; title: string; state: string }[];
   regenerate: () => string;
 }
 
 function pairUrl(state: DashboardState): string {
-  return `clairvoyant://pair?host=${state.host}&port=${state.port}&token=${state.token}`;
+  let url = `clairvoyant://pair?host=${state.host}&port=${state.port}&token=${state.token}`;
+  const f = state.fallback?.();
+  if (f) url += `&fhost=${f.host}&fport=${f.port}&ftls=${f.tls ? 1 : 0}`;
+  return url;
 }
 
 function sendJson(res: http.ServerResponse, body: unknown): void {
@@ -46,7 +57,13 @@ export function createHttpServer(state: DashboardState, publicDir: string): http
       return;
     }
     if (method === "GET" && url === "/pair") {
-      sendJson(res, { url: pairUrl(state), host: state.host, port: state.port, token: state.token });
+      sendJson(res, {
+        url: pairUrl(state),
+        host: state.host,
+        port: state.port,
+        token: state.token,
+        fallback: state.fallback?.(),
+      });
       return;
     }
     if (method === "GET" && url === "/status") {

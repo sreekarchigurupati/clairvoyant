@@ -1,10 +1,11 @@
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createHttpServer, type DashboardState } from "../src/server.js";
+import { createHttpServer, type DashboardState, type FallbackEndpoint } from "../src/server.js";
 
 let server: import("node:http").Server;
 let base: string;
 let currentToken = "tok-1";
+let currentFallback: FallbackEndpoint | undefined;
 
 const state: DashboardState = {
   host: "192.168.1.5",
@@ -12,6 +13,7 @@ const state: DashboardState = {
   get token() {
     return currentToken;
   },
+  fallback: () => currentFallback,
   glassesConnected: () => true,
   sessions: () => [{ id: "s1", title: "foo", state: "running" }],
   regenerate: () => {
@@ -22,6 +24,7 @@ const state: DashboardState = {
 
 beforeEach(async () => {
   currentToken = "tok-1";
+  currentFallback = undefined;
   server = createHttpServer(state, new URL("../public", import.meta.url).pathname);
   await new Promise<void>((res) => server.listen(0, "127.0.0.1", () => res()));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -36,6 +39,21 @@ describe("dashboard HTTP", () => {
     const body = await res.json();
     expect(body.url).toBe("clairvoyant://pair?host=192.168.1.5&port=4317&token=tok-1");
     expect(body).toMatchObject({ host: "192.168.1.5", port: 4317, token: "tok-1" });
+  });
+
+  it("pair URL has no f* params without a fallback", async () => {
+    const body = await (await fetch(`${base}/pair`)).json();
+    expect(body.url).not.toContain("fhost=");
+    expect(body.fallback).toBeUndefined();
+  });
+
+  it("pair URL and /pair JSON include the fallback endpoint", async () => {
+    currentFallback = { host: "mac.tail1234.ts.net", port: 443, tls: true };
+    const body = await (await fetch(`${base}/pair`)).json();
+    expect(body.url).toBe(
+      "clairvoyant://pair?host=192.168.1.5&port=4317&token=tok-1&fhost=mac.tail1234.ts.net&fport=443&ftls=1",
+    );
+    expect(body.fallback).toEqual({ host: "mac.tail1234.ts.net", port: 443, tls: true });
   });
 
   it("GET /status reports glasses + sessions", async () => {
