@@ -41,13 +41,19 @@ function emit(reply) {
 }
 
 function connect() {
-  let isPermissionRequest = false;
+  let payload;
   try {
-    isPermissionRequest = JSON.parse(input).hook_event_name === "PermissionRequest";
+    payload = JSON.parse(input);
   } catch {
     passNoDecision();
     return;
   }
+  const isPermissionRequest = payload.hook_event_name === "PermissionRequest";
+  // The hook is spawned directly by the `claude` process, so our parent PID is that
+  // session's PID. Forwarding it lets the relay prune a session's tab the moment its
+  // Claude process is gone — even on a crash/kill where no SessionEnd hook fires.
+  payload.claude_pid = process.ppid;
+  const line = JSON.stringify(payload) + "\n";
 
   let done = false;
   const finish = (fn) => {
@@ -58,7 +64,7 @@ function connect() {
 
   const sock = net.connect(SOCK);
   let buf = "";
-  sock.on("connect", () => sock.write(input.endsWith("\n") ? input : input + "\n"));
+  sock.on("connect", () => sock.write(line));
   sock.on("data", (d) => {
     buf += d.toString();
     const nl = buf.indexOf("\n");

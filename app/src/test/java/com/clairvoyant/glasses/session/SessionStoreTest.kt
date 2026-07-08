@@ -68,6 +68,21 @@ class SessionStoreTest {
         assertNull(store.data("s1")!!.pending)
     }
 
+    @Test fun mergeSessionsPrunesSessionsTheRelayNoLongerReports() {
+        val store = SessionStore()
+        store.apply(ServerMessage.SessionList(listOf(
+            com.clairvoyant.glasses.relay.SessionInfo("a", "alpha", "running"),
+            com.clairvoyant.glasses.relay.SessionInfo("b", "beta", "running"),
+        )))
+        assertEquals(listOf("a", "b"), store.ids())
+        // Relay drops "a" (ended/pruned) and keeps "b"; the store must drop "a" too.
+        store.apply(ServerMessage.SessionList(listOf(
+            com.clairvoyant.glasses.relay.SessionInfo("b", "beta", "running"),
+        )))
+        assertEquals(listOf("b"), store.ids())
+        assertNull(store.data("a"))
+    }
+
     @Test fun messagesAutoCreateUnknownSessions() {
         val store = SessionStore()
         store.apply(ServerMessage.AssistantDelta("ghost", "hi"))

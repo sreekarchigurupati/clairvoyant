@@ -17,6 +17,8 @@ export interface Session {
   state: SessionState;
   transcriptPath: string | null;
   pending: PendingRequest | null;
+  /** PID of the owning `claude` process, once a hook has reported it. */
+  pid: number | null;
 }
 
 export function titleFromCwd(cwd: string): string {
@@ -26,15 +28,17 @@ export function titleFromCwd(cwd: string): string {
 /**
  * In-memory registry of attached Claude Code sessions. Emits:
  *  - "added" (session) when a new session first appears (→ start a transcript tailer)
+ *  - "removed" (id) when a session is pruned (→ stop its transcript tailer)
  *  - "change" whenever the session list / pending / state changes (→ broadcast session_list)
  */
 export class SessionRegistry extends EventEmitter {
   private sessions = new Map<string, Session>();
 
-  upsert(id: string, cwd: string, transcriptPath: string | null): Session {
+  upsert(id: string, cwd: string, transcriptPath: string | null, pid?: number): Session {
     const existing = this.sessions.get(id);
     if (existing) {
       if (transcriptPath && !existing.transcriptPath) existing.transcriptPath = transcriptPath;
+      if (pid != null) existing.pid = pid;
       return existing;
     }
     const session: Session = {
@@ -44,11 +48,26 @@ export class SessionRegistry extends EventEmitter {
       state: "running",
       transcriptPath,
       pending: null,
+      pid: pid ?? null,
     };
     this.sessions.set(id, session);
     this.emit("added", session);
     this.emit("change");
     return session;
+  }
+
+  /** Remove a session (ended, or its process is gone). No-op if unknown. */
+  remove(id: string): void {
+    if (!this.sessions.delete(id)) return;
+    this.emit("removed", id);
+    this.emit("change");
+  }
+
+  /** Sessions whose owning process PID is known — candidates for liveness pruning. */
+  withPid(): { id: string; pid: number }[] {
+    return [...this.sessions.values()]
+      .filter((s): s is Session & { pid: number } => s.pid != null)
+      .map((s) => ({ id: s.id, pid: s.pid }));
   }
 
   get(id: string): Session | undefined {

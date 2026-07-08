@@ -16,15 +16,17 @@ afterEach(() => {
 const read = () => JSON.parse(fs.readFileSync(settings, "utf8"));
 
 describe("installHook", () => {
-  it("creates settings with a PreToolUse hook (matcher * + high timeout)", () => {
+  it("registers the hook on PermissionRequest, PreToolUse, and SessionEnd (matcher * + high timeout)", () => {
     const r = installHook(settings, 'node "/abs/hook.mjs"');
     expect(r.changed).toBe(true);
     const s = read();
-    expect(s.hooks.PreToolUse).toHaveLength(1);
-    expect(s.hooks.PreToolUse[0]).toEqual({
-      matcher: "*",
-      hooks: [{ type: "command", command: 'node "/abs/hook.mjs"', timeout: DEFAULT_HOOK_TIMEOUT }],
-    });
+    for (const event of ["PermissionRequest", "PreToolUse", "SessionEnd"]) {
+      expect(s.hooks[event]).toHaveLength(1);
+      expect(s.hooks[event][0]).toEqual({
+        matcher: "*",
+        hooks: [{ type: "command", command: 'node "/abs/hook.mjs"', timeout: DEFAULT_HOOK_TIMEOUT }],
+      });
+    }
   });
 
   it("is idempotent", () => {

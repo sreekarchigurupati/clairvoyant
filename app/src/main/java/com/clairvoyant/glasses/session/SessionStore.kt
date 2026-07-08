@@ -88,13 +88,17 @@ class SessionStore {
     }
 
     private fun mergeSessions(list: List<SessionInfo>) {
+        // The relay's list is authoritative: prune any local session it no longer reports
+        // (ended, or pruned by the relay's liveness sweep) so removed tabs don't linger.
+        val incoming = list.mapTo(HashSet()) { it.id }
+        order.retainAll(incoming)
+        map.keys.retainAll(incoming)
         for (info in list) {
             val s = map[info.id]
             if (s == null) {
                 map[info.id] = SessionData(info.id, info.title, info.state); order.add(info.id)
             } else { s.title = info.title; s.state = info.state }
         }
-        // v1: sessions are not removed when they drop out of a list; the relay keeps them for the run.
     }
 
     private fun fallbackTitle(id: String) = "session " + id.take(6)

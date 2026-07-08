@@ -96,6 +96,30 @@ export function createRelay(config: RelayConfig = {}): Relay {
     tailer.start();
   });
 
+  // Stop tailing a session that's been pruned.
+  registry.on("removed", (id: string) => {
+    tailers.get(id)?.stop();
+    tailers.delete(id);
+  });
+
+  // Liveness sweep: a session whose owning `claude` process is gone gets pruned even if no
+  // SessionEnd hook fired (crash, kill -9, lost terminal). Relay and Claude share this host,
+  // so kill(pid, 0) is a reliable "is it still running?" check (EPERM also means alive).
+  const isAlive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === "EPERM";
+    }
+  };
+  const sweep = setInterval(() => {
+    for (const { id, pid } of registry.withPid()) {
+      if (!isAlive(pid)) registry.remove(id);
+    }
+  }, 15000);
+  sweep.unref?.(); // don't keep the process alive for the timer alone
+
   return {
     get host() {
       return host;
@@ -112,6 +136,7 @@ export function createRelay(config: RelayConfig = {}): Relay {
       runtimePort = (httpServer.address() as AddressInfo).port;
     },
     async stop() {
+      clearInterval(sweep);
       for (const tailer of tailers.values()) tailer.stop();
       tailers.clear();
       glasses.close();

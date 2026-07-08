@@ -45,4 +45,35 @@ describe("SessionRegistry", () => {
     reg.upsert("s1", "/Users/x/projects/clairvoyant", null);
     expect(reg.list()[0].title).toBe("clairvoyant");
   });
+
+  it("records a pid and exposes it via withPid; remove drops the session", () => {
+    const reg = new SessionRegistry();
+    const removed = vi.fn();
+    reg.on("removed", removed);
+    reg.upsert("s1", "/x", null, 4242);
+    reg.upsert("s2", "/y", null); // no pid → not a liveness candidate
+    expect(reg.withPid()).toEqual([{ id: "s1", pid: 4242 }]);
+
+    reg.remove("s1");
+    expect(removed).toHaveBeenCalledWith("s1");
+    expect(reg.get("s1")).toBeUndefined();
+    expect(reg.withPid()).toEqual([]);
+  });
+
+  it("backfills a pid on a later upsert without a pid clobbering it", () => {
+    const reg = new SessionRegistry();
+    reg.upsert("s1", "/x", null); // first hook had no pid
+    reg.upsert("s1", "/x", null, 99);
+    expect(reg.get("s1")?.pid).toBe(99);
+    reg.upsert("s1", "/x", null); // a later pid-less event must not wipe it
+    expect(reg.get("s1")?.pid).toBe(99);
+  });
+
+  it("remove is a no-op for an unknown session", () => {
+    const reg = new SessionRegistry();
+    const removed = vi.fn();
+    reg.on("removed", removed);
+    reg.remove("nope");
+    expect(removed).not.toHaveBeenCalled();
+  });
 });

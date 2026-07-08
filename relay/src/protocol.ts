@@ -16,6 +16,8 @@ export interface HookRequest {
   transcript_path?: string;
   hook_event_name?: string;
   permission_suggestions?: PermissionSuggestion[];
+  /** PID of the owning `claude` process (injected by the hook); used for liveness pruning. */
+  claude_pid?: number;
 }
 
 // "allow_always" = allow this call AND persist the suggested rules (updatedPermissions).

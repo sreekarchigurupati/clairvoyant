@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -83,7 +84,9 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
         ensureConnectivityThenStart()
     }
 
-    /** Rokid gestures: tap = approve, long-press = always-allow, temple click = deny, 2-finger swipe = switch. */
+    /** Rokid gestures: tap = approve, touchpad long-press = always-allow, temple click = deny,
+     *  temple long-press = next session. One-finger swipe scrolls (dispatchKeyEvent); the
+     *  two-finger swipe is left to the system (it's the volume gesture). */
     private fun setupRokidKeys() {
         val receiver = RokidKeyReceiver(object : RokidKeyReceiver.Callback {
             override fun onSingleTap() {
@@ -95,8 +98,7 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
             override fun onTempleClick() {
                 runOnUiThread { answerVisible(visibleSessionId(), "deny", "Denied") }
             }
-            override fun onTwoFingerSwipeForward() = runOnUiThread { stepSession(+1) }
-            override fun onTwoFingerSwipeBack() = runOnUiThread { stepSession(-1) }
+            override fun onTempleLongPress() = runOnUiThread { stepSession(+1) }
         })
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(receiver, RokidKeyReceiver.filter(), RECEIVER_EXPORTED)
@@ -120,6 +122,10 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
     private fun setupPager() {
         pagerAdapter = SessionPagerAdapter(this)
         binding.sessionPager.adapter = pagerAdapter
+        // The tabs are a page indicator only — we switch sessions programmatically (gesture ->
+        // stepSession), never by moving focus. Block descendant focus so a tab can't grab the
+        // D-pad focus highlight and leave it stuck on one tab while a different page is selected.
+        binding.sessionTabs.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
         // TabLayoutMediator listens to the adapter and repopulates tabs on every change, so it
         // is created once; we only call pagerAdapter.submit() when the session set changes.
         mediator = TabLayoutMediator(binding.sessionTabs, binding.sessionPager) { tab, position ->
@@ -370,7 +376,12 @@ class SessionActivity : AppCompatActivity(), VoiceCommandListener.Callback, Sess
                     return true
                 }
             }
-            // Touchpad swipes (any direction the firmware maps them to) scroll the transcript.
+            // One-finger swipe scrolls the transcript. The Rokid touchpad can't cleanly separate
+            // swipe axes — a single swipe emits a noisy burst of ENTER plus all four DPAD
+            // directions — so we treat every direction as scroll (forward/down = down, back/up =
+            // up) rather than trying to distinguish horizontal from vertical. Session switching
+            // lives on the temple long-press instead (onTempleLongPress). The two-finger swipe is
+            // left to the system: on Rokid it's the volume gesture (non-abortable broadcast).
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (down) sid?.let { fragments[it]?.scrollBy(300) }
                 return true

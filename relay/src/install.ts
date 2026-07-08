@@ -32,9 +32,9 @@ export function installHook(
     );
   }
 
-  // PermissionRequest carries the prompts; PreToolUse is session tracking only.
+  // PermissionRequest carries the prompts; PreToolUse tracks sessions; SessionEnd prunes them.
   let changed = false;
-  for (const event of ["PermissionRequest", "PreToolUse"]) {
+  for (const event of ["PermissionRequest", "PreToolUse", "SessionEnd"]) {
     settings.hooks[event] ??= [];
     const already = settings.hooks[event].some((entry: any) =>
       (entry?.hooks ?? []).some((h: any) => h?.command === hookCommand),

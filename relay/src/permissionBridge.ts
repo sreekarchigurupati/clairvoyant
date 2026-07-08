@@ -29,8 +29,15 @@ export class PermissionBridge {
   constructor(private readonly deps: BridgeDeps) {}
 
   async handle(req: HookRequest, signal: AbortSignal): Promise<HookReply> {
+    // The session ended: drop its tab instead of registering it. (SessionEnd fires on a
+    // clean exit; crashes are handled by the relay's PID-liveness sweep.)
+    if (req.hook_event_name === "SessionEnd") {
+      this.deps.registry.remove(req.session_id);
+      return { verdict: "pass" };
+    }
+
     const transcriptPath = this.deps.resolveTranscriptPath(req.session_id, req.transcript_path);
-    this.deps.registry.upsert(req.session_id, req.cwd, transcriptPath);
+    this.deps.registry.upsert(req.session_id, req.cwd, transcriptPath, req.claude_pid);
 
     // Only PermissionRequest events escalate: that hook fires after Claude Code's own
     // permission evaluation has already decided to show a prompt, so the glasses mirror

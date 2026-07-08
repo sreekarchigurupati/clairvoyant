@@ -44,6 +44,21 @@ describe("PermissionBridge", () => {
     expect(registry.get("s1")).toBeDefined();
   });
 
+  it("records the claude_pid from the hook payload", async () => {
+    const { bridge, registry } = makeBridge();
+    await bridge.handle(req({ hook_event_name: "PreToolUse", claude_pid: 7777 }), new AbortController().signal);
+    expect(registry.get("s1")?.pid).toBe(7777);
+  });
+
+  it("removes the session on SessionEnd instead of registering it", async () => {
+    const { bridge, registry } = makeBridge();
+    await bridge.handle(req({ hook_event_name: "PreToolUse" }), new AbortController().signal);
+    expect(registry.get("s1")).toBeDefined();
+    const reply = await bridge.handle(req({ hook_event_name: "SessionEnd" }), new AbortController().signal);
+    expect(reply).toEqual({ verdict: "pass" });
+    expect(registry.get("s1")).toBeUndefined();
+  });
+
   it("escalates: sends permission_request, marks pending, resolves on allow", async () => {
     const { bridge, registry, sent } = makeBridge();
     const p = bridge.handle(req(), new AbortController().signal);
